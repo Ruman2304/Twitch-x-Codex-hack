@@ -1,0 +1,3 @@
+# DareLoop Live build guidance
+
+Use `DareLoop_Live_Architecture_and_Codex_Build_Spec` as the product specification when available. Build the P0 live voting loop in vertical slices. Keep the streamer in control: challenges require explicit approval and can always be skipped. Keep votes, timers, and scores authoritative on the server. Demo mode must be clearly labeled. Never expose Twitch or AI secrets to the browser, request precise location, or publish unapproved challenge text. Keep Twitch integration, challenge safety, voting, scoring, and sessions in separate modules. Do not build P1/P2 roadmap items until the P0 flow is stable.
