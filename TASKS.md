@@ -78,3 +78,15 @@ Next: scoped live overlay tokens and browser live delivery. Browser preview work
 - [ ] P2 communities, friends, mobile adventures, proof uploads, shareable clips, packs, discovery, and seasons.
 
 Do not start P1/P2 until the Twitch-to-overlay P0 flow is stable.
+
+
+## Creator custom challenge slice
+
+- [x] Add a creator-only form and endpoint for custom challenge drafts.
+- [x] Validate plain text, category, duration and safety acknowledgement on the server.
+- [x] Require separate approval before inclusion in voting.
+- [x] Let the creator select two or three approved challenges for the next round.
+- [x] Persist custom challenges through the existing repository and preserve active round options.
+- [x] Verify authorization, invalid submissions, approval, selection and restart persistence in memory, PostgreSQL and HTTP checks.
+
+This adds streamer-authored challenges; AI moderation and viewer submissions remain pending. The creator reported successful real Twitch chat voting and an OBS stream test during this session.

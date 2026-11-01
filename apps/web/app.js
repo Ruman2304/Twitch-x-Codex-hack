@@ -1,5 +1,5 @@
 const $ = selector => document.querySelector(selector);
-const ui = { data: null, toastTimer: null, busy: false, attemptRounds: new Map(), offline: false, authRejected: false };
+const ui = { data: null, toastTimer: null, busy: false, attemptRounds: new Map(), offline: false, authRejected: false, selectedChallengeIds: [], selectionTouched: false, selectionSession: null };
 const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const fmt = value => { const seconds = Math.max(0, Math.floor(value)); return `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`; };
 const timeAgo = stamp => { const seconds = Math.max(0, Math.floor(Date.now()/1000-stamp)); return seconds < 5 ? 'Just now' : seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds/60)}m ago`; };
@@ -29,13 +29,16 @@ function render(data) {
   $('#session-pause').textContent=paused?'▶':'Ⅱ';
   $('#session-pause').setAttribute('aria-label',paused?'Resume demo session':'Pause demo session');
   const approved=challenges.filter(c=>c.approval_status==='approved');
+  if(ui.selectionSession!==session.id){ui.selectionSession=session.id;ui.selectionTouched=false;ui.selectedChallengeIds=[];}
+  ui.selectedChallengeIds=ui.selectionTouched?ui.selectedChallengeIds.filter(id=>approved.some(c=>c.id===id)):approved.slice(0,3).map(c=>c.id);
+  $('#selection-hint').textContent=`Next vote: ${ui.selectedChallengeIds.length}/3 selected. Choose 2–3 approved challenges below.`;
   $('#approved-count').textContent=approved.length;
   $('#challenge-total').textContent=challenges.length;
   // Preserve focus and control nodes between polling snapshots.
-  const challengeKey=JSON.stringify(challenges);
+  const challengeKey=JSON.stringify([challenges,ui.selectedChallengeIds,ended]);
   if($('#challenge-list').dataset.key!==challengeKey) {
     $('#challenge-list').dataset.key=challengeKey;
-    $('#challenge-list').innerHTML=challenges.map((c,index)=>`<article class="challenge-card"><div class="challenge-number">${String(index+1).padStart(2,'0')}</div><div class="challenge-main"><div class="challenge-title">${esc(c.title)}</div><div class="challenge-desc">${esc(c.instructions)}</div><div class="challenge-tags"><span class="tag">${esc(c.category)}</span><span class="tag">${c.duration_sec}s</span><span class="tag">${c.points} PTS</span><span class="tag ${c.approval_status==='approved'?'safe':c.approval_status==='rejected'?'rejected':'pending'}">${esc(c.approval_status.toUpperCase())}</span></div></div><div class="challenge-actions">${c.approval_status==='pending'?`<button class="small-action approve" data-approval="approved" data-id="${c.id}" aria-label="Approve ${esc(c.title)}">Approve ↗</button><button class="small-action reject" data-approval="rejected" data-id="${c.id}" aria-label="Reject ${esc(c.title)}">Reject</button>`:`<button class="small-action ${c.approval_status==='approved'?'reject':'approve'}" data-approval="${c.approval_status==='approved'?'rejected':'approved'}" data-id="${c.id}">${c.approval_status==='approved'?'Revoke':'Restore'}</button>`}</div></article>`).join('');
+    $('#challenge-list').innerHTML=challenges.map((c,index)=>`<article class="challenge-card"><div class="challenge-number">${String(index+1).padStart(2,'0')}</div><div class="challenge-main"><div class="challenge-title">${esc(c.title)}</div><div class="challenge-desc">${esc(c.instructions)}</div><div class="challenge-tags"><span class="tag">${esc(c.category)}</span><span class="tag">${c.duration_sec}s</span><span class="tag">${c.source==='creator'?'CUSTOM':`${c.points} PTS`}</span><span class="tag ${c.approval_status==='approved'?'safe':c.approval_status==='rejected'?'rejected':'pending'}">${esc(c.approval_status.toUpperCase())}</span></div></div><div class="challenge-actions">${c.approval_status==='approved'?`<label class="vote-pick"><input type="checkbox" data-vote-id="${c.id}" ${ui.selectedChallengeIds.includes(c.id)?'checked':''} ${ended?'disabled':''}><span>Next vote</span></label>`:''}${c.approval_status==='pending'?`<button class="small-action approve" data-approval="approved" data-id="${c.id}" aria-label="Approve ${esc(c.title)}">Approve ↗</button><button class="small-action reject" data-approval="rejected" data-id="${c.id}" aria-label="Reject ${esc(c.title)}">Reject</button>`:`<button class="small-action ${c.approval_status==='approved'?'reject':'approve'}" data-approval="${c.approval_status==='approved'?'rejected':'approved'}" data-id="${c.id}">${c.approval_status==='approved'?'Revoke':'Restore'}</button>`}</div></article>`).join('');
   }
   const voting=round?.state==='voting';
   const resolved=round?.state==='resolved';
@@ -77,9 +80,9 @@ function render(data) {
   if(paused){label='SESSION MARKED PAUSED';description='Timers are frozen and voting is paused. Resume when you’re ready, or skip at any time.';$('#primary-action').classList.add('hidden');$('#start-attempt').classList.add('hidden');}
   if((voting||resolved)&&!currentAttempt)show('skip-round');
   if(ended){controls.forEach(id=>$('#'+id).classList.add('hidden'));title='THAT’S A WRAP.<br><span>UNTIL NEXT TIME.</span>';description='This session has ended. Reset the demo or create a new live session from setup.';label='SESSION ENDED';timer='—:——';timerLabel='ENDED';}
-  $('#primary-action').disabled=approved.length<2||ui.busy||ui.offline||(!data.demo_mode&&chatState!=='connected');
+  $('#primary-action').disabled=ui.selectedChallengeIds.length<2||ui.busy||ui.offline||(!data.demo_mode&&chatState!=='connected');
   $('#primary-action').innerHTML=`${finished?'Open next round':'Open voting round'} <span>↗</span>`;
-  $('#primary-action').title=approved.length<2?'Approve at least two challenges first':!data.demo_mode&&chatState!=='connected'?'Wait for Twitch chat to connect':'';
+  $('#primary-action').title=ui.selectedChallengeIds.length<2?'Select at least two approved challenges first':!data.demo_mode&&chatState!=='connected'?'Wait for Twitch chat to connect':'';
   $('#arena-title').innerHTML=title;
   $('#arena-description').textContent=description;
   $('#round-label').textContent=label;
@@ -104,7 +107,7 @@ async function action(path,body={},message='Updated.') {
   }catch(error){toast(error.message);}finally{ui.busy=false;}
 }
 $('#challenge-list').addEventListener('click',event=>{const button=event.target.closest('[data-approval]');if(!button)return;if(ui.data?.round?.state==='voting'){toast('Close the current vote before changing its approved pool.');return;}action(`/api/v1/challenges/${button.dataset.id}/approval`,{approval:button.dataset.approval},button.dataset.approval==='approved'?'Challenge approved. Your call, always.':'Challenge removed from the approved pool.');});
-$('#primary-action').onclick=()=>action('/api/v1/rounds',{},'Voting is open for 60 seconds. Let chat choose.');
+$('#primary-action').onclick=()=>action('/api/v1/rounds',{challenge_ids:ui.selectedChallengeIds},'Voting is open for 60 seconds. Let chat choose.');
 $('#close-vote').onclick=()=>action('/api/v1/rounds/close',{},'Votes locked. The next move is yours.');
 $('#start-attempt').onclick=()=>action('/api/v1/attempt',{},'The clock is running. You can always skip.');
 $('#complete-attempt').onclick=()=>action('/api/v1/attempt/action',{action:'complete'},'Another one for the field notes.');
@@ -117,7 +120,16 @@ $('#create-session').onclick=()=>action('/api/v1/sessions',{},'Your session is r
 $('#end-session').onclick=()=>{if(confirm('End this session and stop its active round or challenge?'))action('/api/v1/session/end',{},'Session ended.');};
 $('#overlay-link').onclick=()=>window.open(ui.data?.demo_mode===false?'/overlay/preview':'/overlay/demo','dareloop-overlay','noopener');
 $('#copy-overlay').onclick=async()=>{const url=new URL('/overlay/demo',location.origin).href;try{await navigator.clipboard.writeText(url);toast('Overlay URL copied. Add it as an OBS browser source.');}catch{toast(`Overlay: ${url}`);}};
-$('#add-challenge').onclick=()=>action('/api/v1/challenges/curated',{},'A curated challenge is ready for your review.');
+$('#challenge-list').addEventListener('change',event=>{const input=event.target.closest('[data-vote-id]');if(!input)return;ui.selectionTouched=true;if(input.checked){if(ui.selectedChallengeIds.length>=3){input.checked=false;toast('Choose up to three. Uncheck another challenge first.');return;}ui.selectedChallengeIds.push(input.dataset.voteId);}else{ui.selectedChallengeIds=ui.selectedChallengeIds.filter(id=>id!==input.dataset.voteId);}if(ui.data){const id=input.dataset.voteId;render(ui.data);$('#challenge-list').querySelector(`[data-vote-id="${id}"]`)?.focus();}});
+const challengeDialog=$('#challenge-dialog');
+let savingChallenge=false;
+function closeChallengeForm(){if(!savingChallenge)challengeDialog.close();}
+$('#add-challenge').onclick=()=>{$('#challenge-form-error').textContent='';challengeDialog.showModal();$('#custom-title').focus();};
+$('#close-challenge-dialog').onclick=closeChallengeForm;
+$('#cancel-challenge').onclick=closeChallengeForm;
+challengeDialog.addEventListener('cancel',event=>{if(savingChallenge)event.preventDefault();});
+$('#add-curated').onclick=()=>action('/api/v1/challenges/curated',{},'A curated challenge is ready for your review.');
+$('#challenge-form').addEventListener('submit',async event=>{event.preventDefault();if(savingChallenge||ui.busy||!event.target.reportValidity())return;savingChallenge=true;$('#save-challenge').disabled=true;$('#save-challenge').textContent='Saving…';$('#challenge-form-error').textContent='';try{const data=await request('/api/v1/challenges',{title:$('#custom-title').value.trim(),instructions:$('#custom-instructions').value.trim(),category:$('#custom-category').value,duration_sec:Number($('#custom-duration').value),safety_confirmed:$('#custom-safety').checked});render(data);challengeDialog.close();event.target.reset();toast('Saved for review. Approve it, then select it for your next vote.');}catch(error){$('#challenge-form-error').textContent=error.message;}finally{savingChallenge=false;$('#save-challenge').disabled=false;$('#save-challenge').textContent='Save for review ↗';}});
 $('#reset-demo').onclick=()=>{if(confirm('Reset this demo’s challenges, votes, timers, and points?')){ui.attemptRounds.clear();action('/api/v1/demo/reset',{},'Fresh slate. Make a moment of it.');}};
 const menu=$('.mobile-menu');
 function closeMenu(){$('.sidebar').classList.remove('mobile-open');menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','Open navigation');}

@@ -8,7 +8,7 @@ VIEWERS = {'viewer-1': 'Maple', 'viewer-2': 'Orbit', 'viewer-3': 'Pixel'}
 def tallies(state):
     return {str(i): sum(v['option'] == i for v in state['votes'].values()) for i in (1, 2, 3)}
 
-def open_round(state, now):
+def open_round(state, now, challenge_ids=None):
     current = state['round']
     if current and current['state'] == 'voting':
         raise DomainError('round_already_open')
@@ -18,6 +18,13 @@ def open_round(state, now):
     if attempt and attempt['status'] in ('running', 'paused', 'expired'):
         raise DomainError('finish_or_skip_attempt_first')
     approved = [c for c in state['challenges'] if c['approval_status'] == 'approved']
+    if challenge_ids is not None:
+        if not isinstance(challenge_ids,list) or not 2 <= len(challenge_ids) <= 3 or not all(isinstance(cid,str) for cid in challenge_ids) or len(set(challenge_ids)) != len(challenge_ids):
+            raise DomainError('select_two_or_three_approved_challenges',400)
+        by_id = {c['id']:c for c in approved}
+        if any(cid not in by_id for cid in challenge_ids):
+            raise DomainError('selected_challenge_not_approved',400)
+        approved = [by_id[cid] for cid in challenge_ids]
     if len(approved) < 2:
         raise DomainError('approve_at_least_two_challenges', 400)
     state['round'] = dict(id=str(uuid.uuid4()), state='voting', starts_at=now,

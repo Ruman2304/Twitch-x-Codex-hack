@@ -200,19 +200,25 @@ class SessionService:
                 r['state'] = 'cancelled'
                 self._event('Round skipped by creator')
                 return self.snapshot(actor)
+            if path == '/api/v1/challenges':
+                if len(s['challenges']) >= 100:
+                    raise DomainError('challenge_limit_reached')
+                s['challenges'].append(safety.custom_challenge(data))
+                self._event('Custom challenge added for creator review')
+                return self.snapshot(actor)
             if session['status'] != 'live':
                 raise DomainError('session_paused')
             if path.startswith('/api/v1/challenges/') and path.endswith('/approval'):
                 c = safety.approve(s, path.split('/')[-2], data.get('approval'))
                 self._event(c['title']+' '+c['approval_status'])
             elif path == '/api/v1/challenges/curated':
-                index = len(s['challenges']) - len(safety.SEEDS)
+                index = sum(c['source']=='curated' for c in s['challenges']) - len(safety.SEEDS)
                 if index >= len(safety.SAFE_PACK):
                     raise DomainError('curated_pack_exhausted')
                 s['challenges'].append(safety.challenge(safety.SAFE_PACK[index]))
                 self._event('Curated challenge added for review')
             elif path == '/api/v1/rounds':
-                voting.open_round(s, now)
+                voting.open_round(s, now, data.get('challenge_ids'))
                 self._event('Voting opened for 60 seconds')
             elif path == '/api/v1/rounds/close':
                 voting.close(s)

@@ -82,7 +82,7 @@ If you already have an active session from a previous run, it should load automa
 
 Open your channel chat using **Open Twitch chat**. Ask two friends to sign in and join your channel, or use separate browser profiles with two viewer accounts. Keep your creator dashboard signed in to the original creator account.
 
-Approve all three curated challenges, then click **Open voting round**. There are 60 seconds to vote. In Twitch chat:
+Approve the challenges you want, select two or three using **Next vote**, then click **Open voting round**. To test your own idea first, use **Challenge Forge → Add challenge → Save for review**, approve the saved draft, and select it instead of an older challenge. There are 60 seconds to vote. In Twitch chat:
 
 1. Viewer A sends `!vote 1`.
 2. Viewer B sends `!vote 2`.

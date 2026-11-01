@@ -226,3 +226,10 @@ The backend now receives creator-channel votes through Twitch EventSub, deduplic
 Follow the complete [live chat setup and test guide](docs/LIVE_CHAT_TEST.md). On this Mac, `python3 scripts/dev_db.py start` starts an isolated project PostgreSQL database without Docker or your existing database's administrator password. Copy its printed DATABASE_URL into the ignored `.env`, set the Twitch credentials/encryption key and `DEMO_MODE=false`, apply migrations, and start the API.
 
 Manual chat testing needs your registered Twitch application, browser consent, and two viewer accounts. A signed-in browser can preview the overlay, but scoped live OBS access is still the next feature; live overlay URL copying is disabled until then. Automated EventSub tests use fixture sockets and notifications, not real Twitch.
+
+
+### Creator custom challenges
+
+In **Challenge Forge**, click **Add challenge**, enter a title, instructions, category and duration (30–1800 seconds), confirm that you reviewed its safety, then choose **Save for review**. The challenge stays pending until you explicitly approve it. Use **Next vote** checkboxes to select two or three approved challenges; uncheck an older choice to include a new one. The active round is unchanged by saving drafts or changing next-round selections.
+
+Custom drafts and approvals persist in PostgreSQL within the current session. Ending a session and creating a new one starts a fresh challenge pool. The curated suggestions remain available separately. Validation checks field types, text limits, duration and the creator's acknowledgement; automated AI moderation remains pending. Viewer-created suggestions are not included.
