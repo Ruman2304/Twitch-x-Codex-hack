@@ -26,7 +26,7 @@ This repository contains a **lightweight, dependency-free local MVP** built for 
 - 🎥 **Clean OBS Browser Source Overlay**: Read-only, transparent, responsive overlay designed to drop directly into OBS Studio / Streamlabs.
 - 🧪 **Built-in Demo Simulation**: Fully testable offline! Includes simulated viewers (`Maple`, `Orbit`, `Pixel`) and a demo chat box to simulate `!vote 1`, `!vote 2`, and `!vote 3` commands.
 - 🔑 **Twitch OAuth Integration Ready**: Includes authorization-code grant flow, state validation, and channel profile verification.
-- ⚡ **Zero External Dependencies**: Runs entirely on the Python Standard Library (`http.server`, `threading`, `urllib`, `json`). No `pip install` required!
+- ⚡ **Zero External Dependencies for Memory Demo**: The default local demo runs entirely on the Python Standard Library (`http.server`, `threading`, `urllib`, `json`). No `pip install` required!
 
 ---
 
@@ -142,7 +142,10 @@ Twitch-x-Codex-hack/
 ├── apps/
 │   ├── api/
 │   │   └── app/
-│   │       └── main.py          # Dependency-free server (Auth, State, Timer, API)
+│   │       └── main.py          # HTTP transport, OAuth redirects, API
+│   │       ├── services/        # Session, voting, approval and score rules
+│   │       ├── integrations/    # Server-only Twitch HTTP adapter
+│   │       └── persistence/     # Memory/PostgreSQL repositories and migrations
 │   └── web/
 │       ├── index.html           # Streamer Command Center layout
 │       ├── styles.css           # Premium dark-mode UI & design tokens
@@ -173,7 +176,7 @@ Twitch-x-Codex-hack/
 
 - [x] **P0 Core**: Dependency-free local demo server with Challenge Forge, Live Arena, and OBS Overlay.
 - [x] **P0 Auth**: Twitch OAuth 2.0 authorization-code flow and channel validation.
-- [ ] **P0 Persistence**: PostgreSQL persistence with transactional vote deduplication.
+- [x] **P0 Game Persistence**: PostgreSQL storage and migrations with transactional votes and score constraints; enabled with `DATABASE_URL`. OAuth storage/refresh remains pending.
 - [ ] **P0 Realtime**: WebSocket real-time event streaming replacing HTTP polling.
 - [ ] **P0 Chat EventSub**: Live `channel.chat.message` listener via Twitch EventSub WebSocket.
 - [ ] **P1 Features**: Viewer challenge suggestions, safety moderation queue, team competitions.
@@ -197,6 +200,13 @@ Frontend checks: `node --check apps/web/app.js` and `node --check apps/web/overl
 
 Run `python3 -m unittest discover -s tests -v` for the backend regression suite. It covers deadline boundaries, repeated/concurrent votes, participation idempotency, approval revocation, repeated attempts, pause/resume, end/skip controls, request validation, creator ownership, and browser-bound OAuth state. Tests run offline and use no real credentials.
 
-With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. There is one in-memory workspace per server process in this slice; PostgreSQL, durable account/token refresh, multiple sessions, EventSub chat, scoped overlay tokens, and WebSockets are not implemented yet. The unauthenticated OBS demo is intended for demo mode only.
+With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, configure PostgreSQL first, then sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. The lifecycle slice began with one in-memory workspace. PostgreSQL game persistence is now available as described below. Durable account/token refresh, multiple session routes, EventSub chat, scoped overlay tokens, and WebSockets remain pending. The unauthenticated OBS demo is intended for demo mode only.
 
 New lifecycle endpoints: `POST /api/v1/sessions`, `POST /api/v1/session/resume`, `POST /api/v1/session/end`, and `POST /api/v1/rounds/skip`. The existing pause endpoint toggles pause/resume for frontend compatibility. Complete and skip remain available while paused; new rounds and votes require a live session.
+
+
+## PostgreSQL persistence
+
+Follow [database setup](docs/DATABASE_SETUP.md) to install the optional driver, configure `DATABASE_URL`, and apply migrations. With PostgreSQL configured, sessions, challenges, approvals, rounds, votes, timers, scores, and activity recover across restarts. The server rejects unavailable storage rather than silently falling back to memory. Twitch login cookies and OAuth tokens are still in memory; persistent encrypted credentials are the next backend slice.
+
+Without `DATABASE_URL`, `DEMO_MODE=true` still runs using memory and does not preserve state across server restarts. Live mode now requires a database. PostgreSQL integration tests are opt-in through `TEST_DATABASE_URL`; the standard offline suite reports them as skipped when no test database is configured.

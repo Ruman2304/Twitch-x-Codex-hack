@@ -1,17 +1,48 @@
-"""In-memory session coordinator. Persistence will replace this storage boundary."""
+"""Session rules executed inside an atomic repository transaction."""
 import copy
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+from ..persistence.repository import MemoryRepository
 from .common import DomainError
 from . import safety, voting
 
 class SessionService:
-    def __init__(self, demo=True, clock=time.time):
+    def __init__(self, demo=True, clock=time.time, repository=None):
         self.demo = demo
         self.clock = clock
         self.lock = threading.RLock()
-        self.state = self._initial()
+        self.repository = repository if repository is not None else MemoryRepository()
+        self._depth = 0
+        self.state = None
+        with self._transaction():
+            pass
+
+    @contextmanager
+    def _transaction(self):
+        with self.lock:
+            if self._depth:
+                yield
+                return
+            previous = copy.deepcopy(self.state)
+            try:
+                with self.repository.transaction(self._initial) as unit:
+                    self.state = unit.state
+                    self._depth = 1
+                    try:
+                        yield
+                        unit.state = self.state
+                    finally:
+                        self._depth = 0
+            except BaseException:
+                self.state = previous
+                raise
+
+    def capabilities(self, actor):
+        with self._transaction():
+            session = self.state['session']
+            return bool(actor) and (session['creator_id'] is None or (session['creator_id'] == actor and session['status'] == 'ended'))
 
     def _initial(self, owner=None):
         return dict(session=dict(id=str(uuid.uuid4()), creator_id=owner,
@@ -30,7 +61,7 @@ class SessionService:
 
     def _event(self, message):
         self.state['session']['version'] += 1
-        self.state['activity'].insert(0, dict(id=str(uuid.uuid4()), at=int(self.clock()), message=message))
+        self.state['activity'].insert(0, dict(id=str(uuid.uuid4()), at=int(self.clock()), sequence=self.state['session']['version'], message=message))
         del self.state['activity'][50:]
 
     def _tick(self):
@@ -51,18 +82,18 @@ class SessionService:
                 self._event('Challenge timer expired')
 
     def snapshot(self, actor=None):
-        with self.lock:
+        with self._transaction():
             self.authorize(actor)
             self._tick()
             s = self.state
             return copy.deepcopy(dict(demo_mode=self.demo, server_time=self.clock(),
-                    session=s['session'], challenges=s['challenges'], round=s['round'],
+                    storage=self.repository.storage, session=s['session'], challenges=s['challenges'], round=s['round'],
                     attempt=s['attempt'], tallies=voting.tallies(s),
                     scores=sorted([dict(name=n, points=p) for n,p in s['scores'].items()], key=lambda r: (-r['points'], r['name'])),
                     activity=s['activity'], viewers=voting.VIEWERS if self.demo else {}))
 
     def execute(self, path, data, actor=None):
-        with self.lock:
+        with self._transaction():
             if not isinstance(data, dict):
                 raise DomainError('json_object_required', 400)
             if path == '/api/v1/sessions':

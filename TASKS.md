@@ -11,7 +11,7 @@
 - [x] Clearly label simulated demo mode and document local startup.
 - [x] Add Twitch OAuth authorization-code start/callback, one-time state validation, token validation, and channel profile lookup.
 - [x] Keep the OAuth token in a server-only session and provide a disconnect action.
-- [ ] Add persistent PostgreSQL records and migrations.
+- [x] Add persistent PostgreSQL session/game records, transactional vote constraints, and checksummed SQL migrations. OAuth persistence remains a separate slice.
 - [ ] Replace polling with WebSocket events and reconnect snapshots.
 - [ ] Add encrypted persistent token storage, refresh/reconnect handling, and durable `/me` sessions.
 - [ ] Add EventSub WebSocket `channel.chat.message`, inbox event-ID deduplication, and `!vote` parsing.
@@ -30,9 +30,20 @@
 - [x] Bind OAuth state to its initiating browser and omit callback queries from HTTP logs.
 - [x] Add lifecycle, concurrency, authorization, validation, and OAuth regression tests.
 
-This slice still uses one in-memory workspace per server process. Demo mode intentionally allows local simulated controls without Twitch login. Live mode requires explicit session creation after sign-in. Durable storage, multi-session routing, token refresh, scoped overlays, and actual Twitch chat remain pending.
+At the end of slice 1, storage used one in-memory workspace per server process. Demo mode intentionally allows local simulated controls without Twitch login. Live mode requires explicit session creation after sign-in. Durable storage, multi-session routing, token refresh, scoped overlays, and actual Twitch chat remain pending.
 
-Next: PostgreSQL models/migrations and a transactional repository, followed by encrypted OAuth persistence/refresh, EventSub ingestion, live delivery, and scoped overlays. Add structured AI generation after the Twitch loop is stable.
+## Backend slice 2 — durable game state
+
+- [x] Add PostgreSQL repository and forward-only checksummed migrations.
+- [x] Persist sessions, approvals, rounds/options, votes, attempts, score ledger, and ordered activity.
+- [x] Serialize updates with a database workspace row lock; commit votes and points atomically.
+- [x] Enforce unique votes and score keys, one active round, and one attempt per round in the schema.
+- [x] Recover paused timers and expire overdue timers after service recreation.
+- [x] Isolate demo/live workspaces; archive previous demo state on reset.
+- [x] Keep memory storage available for no-credentials local demos; require DATABASE_URL for live mode.
+- [x] Add real PostgreSQL integration and lifecycle contract coverage, plus local setup documentation.
+
+Next: encrypted OAuth persistence/refresh, then EventSub ingestion, live delivery, and scoped overlays. Add structured AI generation after the Twitch loop is stable. Multiple session routes, retention jobs, and API framework migration remain pending.
 
 ## Later roadmap
 

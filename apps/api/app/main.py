@@ -8,36 +8,29 @@ import time
 import uuid
 import secrets
 import html
+from pathlib import Path
 from http.cookies import SimpleCookie
 
 if __package__:
+    from .config import ROOT, load_local_env
+    from .persistence.repository import MemoryRepository, PostgresRepository
     from .services.sessions import SessionService
     from .services.common import DomainError
     from .integrations.twitch import exchange_profile
 else:
-    from services.sessions import SessionService
-    from services.common import DomainError
-    from integrations.twitch import exchange_profile
+    # Use the same package imports for direct-script and module startup.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from apps.api.app.config import ROOT, load_local_env
+    from apps.api.app.persistence.repository import MemoryRepository, PostgresRepository
+    from apps.api.app.services.sessions import SessionService
+    from apps.api.app.services.common import DomainError
+    from apps.api.app.integrations.twitch import exchange_profile
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode
 
-ROOT = Path(__file__).resolve().parents[3]
 WEB = ROOT / "apps" / "web"
-
-def load_local_env():
-    """Load simple KEY=value entries without overriding real process environment."""
-    env_file = ROOT / ".env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key.strip(), value)
 
 load_local_env()
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID", "").strip()
@@ -47,7 +40,20 @@ DEMO = os.getenv("DEMO_MODE", "true").lower() == "true"
 OAUTH_STATES = {}
 WEB_SESSIONS = {}
 
-GAME = SessionService(demo=DEMO)
+def build_game():
+    dsn = os.getenv("DATABASE_URL", "").strip()
+    if not dsn and not DEMO:
+        raise RuntimeError("DATABASE_URL is required with DEMO_MODE=false. Configure PostgreSQL and apply migrations first.")
+    try:
+        repository = PostgresRepository(dsn, workspace=os.getenv("DATABASE_WORKSPACE", "default"), demo=DEMO) if dsn else MemoryRepository()
+        return SessionService(demo=DEMO, repository=repository)
+    except ImportError:
+        raise RuntimeError("Install apps/api/requirements.txt in the project virtual environment.") from None
+    except DomainError:
+        raise RuntimeError("Database unavailable. Check connectivity and apply migrations before starting.") from None
+
+# Construct storage only at server startup, never as an import side effect.
+GAME = None
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "DareLoopDemo/0.1"
@@ -140,16 +146,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_page(502, "Twitch connection failed", "The server could not finish OAuth with Twitch. Check the Client ID, secret, and exact redirect URL, then try again.")
         if path == "/api/v1/me":
             user = self.session_user()
-            with GAME.lock:
-                session = GAME.state["session"]
-                can_create = bool(user) and (session["creator_id"] is None or (session["creator_id"] == user["id"] and session["status"] == "ended"))
+            try:
+                can_create = GAME.capabilities(user["id"] if user else None)
+            except DomainError as error:
+                return self.error_json(error)
             return self.send_json(200, {"data": {"connected": bool(user), "user": user, "demo_mode": DEMO, "can_create_session": can_create}, "error": None})
         if path == "/api/v1/state":
             try:
                 return self.send_json(200, {"data": GAME.snapshot(self.actor_id()), "error": None, "request_id": str(uuid.uuid4())})
             except DomainError as error:
                 return self.error_json(error)
-        if path == "/api/v1/health": return self.send_json(200, {"ok": True, "demo_mode": DEMO})
+        if path == "/api/v1/health": return self.send_json(200, {"ok": True, "demo_mode": DEMO, "storage": GAME.repository.storage})
         if path == "/overlay/demo": path = "/overlay.html"
         if path == "/": path = "/index.html"
         safe = (WEB / path.lstrip("/")).resolve()
@@ -177,6 +184,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Set-Cookie","dareloop_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"); self.send_header("Content-Length",str(len(raw))); self.end_headers(); self.wfile.write(raw); return True
 
 if __name__ == "__main__":
+    GAME = build_game()
     host=os.getenv("HOST","127.0.0.1"); port=int(os.getenv("PORT","8000"))
     print(f"DareLoop Live demo at http://{host}:{port} (DEMO_MODE={str(DEMO).lower()})")
     ThreadingHTTPServer((host,port),Handler).serve_forever()
