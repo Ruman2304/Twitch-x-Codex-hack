@@ -1,6 +1,6 @@
 # Connecting DareLoop to Twitch
 
-DareLoop uses Twitch's server-side Authorization Code flow. Tokens stay on the server. With PostgreSQL and an encryption key configured, the Twitch connection and opaque browser login survive an API restart. The local voting demo still works without a Twitch account. Real EventSub chat ingestion is the next feature and is not connected yet.
+DareLoop uses Twitch's server-side Authorization Code flow. Tokens stay on the server. With PostgreSQL and an encryption key configured, the Twitch connection and opaque browser login survive an API restart. The local voting demo still works without a Twitch account. Real EventSub chat ingestion is now implemented for live mode. Follow [the complete live test walkthrough](LIVE_CHAT_TEST.md).
 
 ## Register an application
 
@@ -10,7 +10,7 @@ Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/
 http://localhost:8000/api/v1/auth/twitch/callback
 ```
 
-Keep your Client ID and Client Secret in the root ignored `.env` or your host's secret manager. The current app requests only `user:read:chat`; it does not request chat-send or moderation permissions. EventSub transport-specific requirements will be implemented in the chat slice.
+Keep your Client ID and Client Secret in the root ignored `.env` or your host's secret manager. The current app requests only `user:read:chat`; it does not request chat-send or moderation permissions. The local WebSocket flow subscribes as the creator: broadcaster_user_id and user_id both equal the signed-in creator. It does not require app-token bot scopes.
 
 Start sign-in with **Connect Twitch**. The start endpoint redirects to the configured callback host before issuing a browser-bound state cookie. This avoids localhost/127.0.0.1 cookie mismatches. OAuth state is hashed on the server, expires after 10 minutes, and is consumed once. With PostgreSQL, pending sign-in state also survives a restart.
 
@@ -70,7 +70,7 @@ Browser cookies contain random opaque session identifiers. Only SHA-256 hashes a
 
 Future server-only Twitch adapters obtain a token through `AccountService.access_token(user_id)`. On an actual Twitch 401, call it again with `rejected_token=the_token_that_failed` and retry the provider operation once. Never expose this token-returning method as a browser endpoint.
 
-With `DEMO_MODE=false`, sign in and select **Create live session**. Game reads and actions require that creator's authenticated cookie. One workspace per server configuration remains the current limitation; scoped OBS tokens and EventSub chat are still pending.
+With `DEMO_MODE=false`, sign in and select **Create live session**. Game reads and actions require that creator's authenticated cookie. One workspace per server configuration remains the current limitation; scoped live OBS tokens and browser WebSocket delivery remain pending.
 
 ## Automated verification
 
@@ -78,6 +78,6 @@ With `DEMO_MODE=false`, sign in and select **Create live session**. Game reads a
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Set `TEST_DATABASE_URL` to a separate disposable database to include PostgreSQL account and game tests. Tests use a fake Twitch provider and generated test keys; they never contact real Twitch or use real credentials. They cover token encryption, cookie/state hashing, refresh races, rotation, validation, revoked permissions, wrong identities, outages, durable disconnect retries, and recovery after service recreation. Real OAuth consent and two-viewer chat testing still require a registered app and your browser.
+Set `TEST_DATABASE_URL` to a separate disposable database to include PostgreSQL account and game tests. Tests use a fake Twitch provider and generated test keys; they never contact real Twitch or use real credentials. They cover token encryption, cookie/state hashing, refresh races, rotation, validation, revoked permissions, wrong identities, outages, durable disconnect retries, and recovery after service recreation. Real OAuth consent and two-viewer chat testing still require a registered app and your browser; follow LIVE_CHAT_TEST.md.
 
 Official references: [Authorization Code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/), [token validation](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refresh](https://dev.twitch.tv/docs/authentication/refresh-tokens/), [revocation](https://dev.twitch.tv/docs/authentication/revoke-tokens/), and [Fernet encryption](https://cryptography.io/en/latest/fernet/).

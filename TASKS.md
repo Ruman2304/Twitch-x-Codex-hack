@@ -14,7 +14,7 @@
 - [x] Add persistent PostgreSQL session/game records, transactional vote constraints, and checksummed SQL migrations. OAuth persistence is completed in slice 3.
 - [ ] Replace polling with WebSocket events and reconnect snapshots.
 - [x] Add encrypted persistent token storage, serialized refresh/reconnect handling, and durable `/me` sessions.
-- [ ] Add EventSub WebSocket `channel.chat.message`, inbox event-ID deduplication, and `!vote` parsing.
+- [x] Add EventSub WebSocket `channel.chat.message`, persistent event/chat-message ID deduplication, and strict `!vote` parsing.
 - [ ] Add scoped, expiring, revocable overlay tokens and actual session ownership checks.
 - [ ] Add structured challenge generation, server validation, moderation, and curated fallback.
 - [ ] Add automated unit, integration, and browser coverage for transitions, duplicates, late votes, refresh/reconnect, authorization, and safety.
@@ -55,7 +55,22 @@ After slice 2, the next work was encrypted OAuth persistence/refresh, then Event
 - [x] Disconnect locally immediately and durably retry provider revocation when unavailable.
 - [x] Add memory/PostgreSQL account contracts and HTTP cookie/restart verification with a fake provider.
 
-Next: EventSub WebSocket chat ingestion and event-ID deduplication, followed by live browser delivery and scoped overlays. Real Twitch consent and chat tests remain pending credentials and manual testing.
+EventSub ingestion and event-ID deduplication were completed in slice 4 below. Live browser delivery and scoped overlays remain next. Real Twitch consent and chat tests remain pending credentials and manual testing.
+
+## Backend slice 4 — real chat ingestion
+
+- [x] Subscribe to the creator's channel.chat.message with a user token and user:read:chat.
+- [x] Elect one ingestion worker per workspace with a PostgreSQL advisory lock.
+- [x] Persist provider event/chat-message IDs atomically with vote changes and score events.
+- [x] Reject wrong channels/subscriptions, shared-chat sources, late/paused/stale commands, and invalid vote options.
+- [x] Keep participation keyed by Twitch user ID, independent of display names.
+- [x] Handle welcome, keepalive, ping/pong, revocation, cold reconnect/resubscribe, and migrated reconnect URLs.
+- [x] Publish truthful connection state to the dashboard and hide simulation controls in live mode.
+- [x] Add an isolated local database helper and a complete manual Twitch test walkthrough.
+
+Automated coverage uses fixtures; real OAuth consent and chat delivery still require the creator's app credentials and two real viewer accounts. See docs/LIVE_CHAT_TEST.md.
+
+Next: scoped live overlay tokens and browser live delivery. Browser preview works with creator cookies; a separate live OBS browser source is not supported yet.
 
 ## Later roadmap
 

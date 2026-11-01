@@ -21,7 +21,7 @@ def open_round(state, now):
     if len(approved) < 2:
         raise DomainError('approve_at_least_two_challenges', 400)
     state['round'] = dict(id=str(uuid.uuid4()), state='voting', starts_at=now,
-                          closes_at=now + 60, remaining_sec=60,
+                          closes_at=now + 60, remaining_sec=60, accepts_after=now,
                           options=[dict(number=i+1, challenge_id=c['id'], title=c['title']) for i, c in enumerate(approved[:3])])
     state['votes'] = {}
     state['attempt'] = None
@@ -36,11 +36,11 @@ def close(state):
     round_['tallies'] = counts
     round_['remaining_sec'] = 0
 
-def vote(state, viewer, option, now):
+def vote(state, viewer, option, now, display_name=None):
     round_ = state['round']
     if not round_ or round_['state'] != 'voting' or now >= round_['closes_at']:
         raise DomainError('voting_closed')
-    if not isinstance(viewer, str) or viewer not in VIEWERS or type(option) is not int or option not in [o['number'] for o in round_['options']]:
+    if not isinstance(viewer, str) or not viewer or (display_name is None and viewer not in VIEWERS) or type(option) is not int or option not in [o['number'] for o in round_['options']]:
         raise DomainError('invalid_vote', 400)
     state['votes'][viewer] = dict(option=option, updated_at=now)
-    scoring.participation(state, viewer, VIEWERS[viewer], round_['id'])
+    scoring.participation(state, viewer, display_name if display_name is not None else VIEWERS[viewer], round_['id'])

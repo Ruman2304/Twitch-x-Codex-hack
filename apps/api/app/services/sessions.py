@@ -6,7 +6,7 @@ import uuid
 from contextlib import contextmanager
 from ..persistence.repository import MemoryRepository
 from .common import DomainError
-from . import safety, voting
+from . import safety, voting, scoring
 
 class SessionService:
     def __init__(self, demo=True, clock=time.time, repository=None):
@@ -29,12 +29,14 @@ class SessionService:
             try:
                 with self.repository.transaction(self._initial) as unit:
                     self.state = unit.state
+                    self._unit = unit
                     self._depth = 1
                     try:
                         yield
                         unit.state = self.state
                     finally:
                         self._depth = 0
+                        self._unit = None
             except BaseException:
                 self.state = previous
                 raise
@@ -89,8 +91,35 @@ class SessionService:
             return copy.deepcopy(dict(demo_mode=self.demo, server_time=self.clock(),
                     storage=self.repository.storage, session=s['session'], challenges=s['challenges'], round=s['round'],
                     attempt=s['attempt'], tallies=voting.tallies(s),
-                    scores=sorted([dict(name=n, points=p) for n,p in s['scores'].items()], key=lambda r: (-r['points'], r['name'])),
+                    scores=scoring.leaderboard(s),
                     activity=s['activity'], viewers=voting.VIEWERS if self.demo else {}))
+
+    def chat_target(self):
+        with self._transaction():
+            session = self.state['session']
+            if self.demo or session['status'] not in ('live','paused'):
+                return None
+            return session['creator_id']
+
+    def ingest_chat(self, message):
+        """Trusted backend adapter only; deliberately not exposed as an HTTP route."""
+        with self._transaction():
+            if self.demo or self.state['session']['creator_id'] != message['broadcaster_id']:
+                return 'ignored'
+            self._tick()
+            now, r = self.clock(), self.state['round']
+            allowed = (self.state['session']['status']=='live' and r and r['state']=='voting' and
+                       now < r['closes_at'] and r.get('accepts_after',r['starts_at']) <= message['sent_at'] < r['closes_at'] and
+                       message['sent_at'] <= now+30 and message['option'] in [o['number'] for o in r['options']])
+            record = dict(event_id=message['event_id'],chat_id=message['chat_id'],
+                          session_id=self.state['session']['id'],received_at=now,outcome='counted' if allowed else 'ignored')
+            if not self._unit.claim_event(record):
+                return 'duplicate'
+            if not allowed:
+                return 'ignored'
+            voting.vote(self.state,message['viewer_id'],message['option'],now,message['display_name'])
+            self._event(message['display_name']+' voted for option '+str(message['option']))
+            return 'counted'
 
     def execute(self, path, data, actor=None):
         with self._transaction():
@@ -142,6 +171,7 @@ class SessionService:
                         r['closes_at'] = None
                     else:
                         r['closes_at'] = now + r['remaining_sec']
+                        r['accepts_after'] = now
                 if a and a['status'] in ('running', 'paused'):
                     if pause:
                         a['remaining_sec'] = max(0, a['ends_at'] - now)

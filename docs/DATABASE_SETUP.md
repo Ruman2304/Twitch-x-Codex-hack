@@ -15,7 +15,7 @@ Memory-only demo mode continues to work without the driver.
 
 ## Configure PostgreSQL
 
-Use an existing dedicated PostgreSQL database or, with Docker installed, start the optional local database:
+On a Mac with PostgreSQL 18 installed, `python3 scripts/dev_db.py start` creates an isolated private-socket development database and prints its DATABASE_URL. It uses the ignored .local directory and does not modify a system database. Run the helper with `stop` to shut it down without deleting data. Alternatively, use an existing dedicated database or, with Docker installed, start the optional local database:
 
 ```bash
 export POSTGRES_PASSWORD='replace-with-your-local-password'
@@ -70,3 +70,5 @@ To run the same lifecycle contract and persistence tests against PostgreSQL, set
 The integration suite applies migrations and creates unique test workspaces. It does not delete existing rows, but it must not run against a production database. Coverage includes recovery, frozen timers, overdue deadlines, old-round history, cross-instance votes, database uniqueness, transaction rollback, migration checksums, ownership, and demo/live isolation.
 
 Implementation references: [Psycopg transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html) and [row factories](https://www.psycopg.org/psycopg3/docs/advanced/rows.html).
+
+Migration 003 adds the minimal EventSub inbox and receiver runtime heartbeat. Provider event IDs and chat-message IDs are unique within a workspace, and inbox claims commit with votes and score events. PostgreSQL advisory locking elects one receiver per workspace. Raw chat message bodies are not retained.

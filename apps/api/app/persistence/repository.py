@@ -18,6 +18,7 @@ MIGRATIONS = Path(__file__).parent / 'migrations'
 @dataclass
 class UnitOfWork:
     state: dict
+    claim_event: object = None
 
 class MemoryRepository:
     storage = 'memory'
@@ -25,13 +26,21 @@ class MemoryRepository:
     def __init__(self):
         self.lock = threading.RLock()
         self.state = None
+        self.inbox = {}
 
     @contextmanager
     def transaction(self, initial):
         with self.lock:
-            unit = UnitOfWork(copy.deepcopy(self.state if self.state is not None else initial()))
+            inbox = copy.deepcopy(self.inbox)
+            def claim(record):
+                if record['event_id'] in inbox or any(r['chat_id']==record['chat_id'] for r in inbox.values()):
+                    return False
+                inbox[record['event_id']] = copy.deepcopy(record)
+                return True
+            unit = UnitOfWork(copy.deepcopy(self.state if self.state is not None else initial()), claim)
             yield unit
             self.state = copy.deepcopy(unit.state)
+            self.inbox = inbox
 
 class PostgresRepository:
     storage = 'postgresql'
@@ -76,7 +85,12 @@ class PostgresRepository:
                 workspace = connection.execute('SELECT active_session_id FROM workspaces WHERE key = %s FOR UPDATE', (self.workspace,)).fetchone()
                 state = self._load(connection, workspace['active_session_id']) if workspace['active_session_id'] else initial()
                 before = copy.deepcopy(state) if workspace['active_session_id'] else None
-                unit = UnitOfWork(state)
+                def claim(record):
+                    row = connection.execute('''INSERT INTO event_inbox (workspace_key,provider_event_id,chat_message_id,session_id,received_at,outcome)
+                            VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING provider_event_id''',
+                            (self.workspace,record['event_id'],record['chat_id'],record['session_id'],self.timestamp(record['received_at']),record['outcome'])).fetchone()
+                    return row is not None
+                unit = UnitOfWork(state, claim)
                 yield unit
                 if unit.state != before:
                     self._save(connection, unit.state)
@@ -97,8 +111,8 @@ class PostgresRepository:
             state['attempt'] = db.execute('SELECT payload FROM attempts WHERE id = %s', (row['active_attempt_id'],)).fetchone()['payload']
         for event in db.execute('SELECT idempotency_key, round_id, twitch_user_id, display_name, delta, reason FROM score_events WHERE session_id = %s ORDER BY id', (sid,)).fetchall():
             state['score_events'][event['idempotency_key']] = dict(user_id=event['twitch_user_id'], name=event['display_name'], round_id=str(event['round_id']), delta=event['delta'], reason=event['reason'])
-            name = event['display_name']
-            state['scores'][name] = state['scores'].get(name, 0) + event['delta']
+            uid = event['twitch_user_id']
+            state['scores'][uid] = state['scores'].get(uid, 0) + event['delta']
         state['activity'] = [r['payload'] for r in db.execute('SELECT payload FROM activity_events WHERE session_id = %s ORDER BY sequence DESC LIMIT 50', (sid,)).fetchall()]
         return state
 
@@ -150,3 +164,36 @@ class PostgresRepository:
         db.execute('UPDATE sessions SET active_round_id=%s, active_attempt_id=%s WHERE id=%s',
                    (round_['id'] if round_ else None, attempt['id'] if attempt else None, sid))
         db.execute('UPDATE workspaces SET active_session_id=%s WHERE key=%s', (sid, self.workspace))
+
+    @contextmanager
+    def ingestion_leader(self):
+        key = int.from_bytes(hashlib.sha256(('eventsub:'+self.workspace).encode()).digest()[:8], signed=True)
+        try:
+            with self.connect() as connection:
+                connection.autocommit = True
+                acquired = connection.execute('SELECT pg_try_advisory_lock(%s) AS acquired', (key,)).fetchone()['acquired']
+                try:
+                    yield connection if acquired else None
+                finally:
+                    if acquired and not connection.closed:
+                        connection.execute('SELECT pg_advisory_unlock(%s)', (key,))
+        except self.driver.Error:
+            raise DomainError('storage_unavailable',503) from None
+
+    def write_chat_status(self, connection, payload):
+        connection.execute('''INSERT INTO eventsub_runtime (workspace_key,payload) VALUES (%s,%s)
+                              ON CONFLICT (workspace_key) DO UPDATE SET payload=EXCLUDED.payload, updated_at=now()''',
+                           (self.workspace,self.json(payload)))
+
+    def read_chat_status(self):
+        try:
+            with self.connect() as connection:
+                row = connection.execute('SELECT payload, updated_at FROM eventsub_runtime WHERE workspace_key=%s', (self.workspace,)).fetchone()
+                if not row:
+                    return {'state':'connecting'}
+                result = dict(row['payload'])
+                if (datetime.now(timezone.utc)-row['updated_at']).total_seconds() > 30:
+                    result['state'] = 'reconnecting'
+                return result
+        except self.driver.Error:
+            return {'state':'storage_unavailable'}

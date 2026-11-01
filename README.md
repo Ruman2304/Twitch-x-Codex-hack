@@ -178,7 +178,7 @@ Twitch-x-Codex-hack/
 - [x] **P0 Auth**: Twitch OAuth 2.0 authorization-code flow and channel validation.
 - [x] **P0 Game Persistence**: PostgreSQL storage and migrations with transactional votes and score constraints; enabled with `DATABASE_URL`. Encrypted OAuth storage/refresh is available with TOKEN_ENCRYPTION_KEYS.
 - [ ] **P0 Realtime**: WebSocket real-time event streaming replacing HTTP polling.
-- [ ] **P0 Chat EventSub**: Live `channel.chat.message` listener via Twitch EventSub WebSocket.
+- [x] **P0 Chat EventSub**: Server-side `channel.chat.message` receiver with persistent inbox deduplication and connection recovery. Real-provider manual testing remains pending.
 - [ ] **P1 Features**: Viewer challenge suggestions, safety moderation queue, team competitions.
 
 ---
@@ -189,7 +189,7 @@ Distributed under the MIT License. Built with ❤️ for the Twitch x Codex Hack
 
 ## Frontend design preview
 
-The `bilal/frontend` branch refreshes the Command Center with a charcoal and lime broadcast workspace, an authored campus illustration, a central arena, voting cards, challenge review, a simulated chat panel, and a matching transparent overlay. It uses the existing local demo API; real Twitch chat and AI generation remain pending.
+The `bilal/frontend` branch refreshes the Command Center with a charcoal and lime broadcast workspace, an authored campus illustration, a central arena, voting cards, challenge review, a simulated chat panel, and a matching transparent overlay. It uses the existing local demo API; real Twitch chat is implemented on the backend branch; AI generation remains pending.
 
 Start the server with `python3 apps/api/app/main.py`, then open `http://127.0.0.1:8000`. Approve at least two challenges, open voting, send votes as the demo viewers, close voting, and start the winner. Complete or skip to reveal the next-round control. The connection panel copies the OBS URL and resets the demo. Session pause now freezes round and challenge timers on the server. Resume restores the remaining time. You can skip a round before starting, complete or skip a paused challenge, and end a session.
 
@@ -200,7 +200,7 @@ Frontend checks: `node --check apps/web/app.js` and `node --check apps/web/overl
 
 Run `python3 -m unittest discover -s tests -v` for the backend regression suite. It covers deadline boundaries, repeated/concurrent votes, participation idempotency, approval revocation, repeated attempts, pause/resume, end/skip controls, request validation, creator ownership, and browser-bound OAuth state. Tests run offline and use no real credentials.
 
-With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, configure PostgreSQL first, then sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. The lifecycle slice began with one in-memory workspace. PostgreSQL game persistence is now available as described below. Encrypted durable accounts and token refresh are now available with TOKEN_ENCRYPTION_KEYS. Multiple session routes, EventSub chat, scoped overlay tokens, and WebSockets remain pending. The unauthenticated OBS demo is intended for demo mode only.
+With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, configure PostgreSQL first, then sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. The lifecycle slice began with one in-memory workspace. PostgreSQL game persistence is now available as described below. Encrypted durable accounts and token refresh are now available with TOKEN_ENCRYPTION_KEYS. Multiple session routes, scoped live overlay tokens and browser WebSockets remain pending. EventSub chat is now implemented. The unauthenticated OBS demo is intended for demo mode only.
 
 New lifecycle endpoints: `POST /api/v1/sessions`, `POST /api/v1/session/resume`, `POST /api/v1/session/end`, and `POST /api/v1/rounds/skip`. The existing pause endpoint toggles pause/resume for frontend compatibility. Complete and skip remain available while paused; new rounds and votes require a live session.
 
@@ -216,4 +216,13 @@ Without `DATABASE_URL`, `DEMO_MODE=true` still runs using memory and does not pr
 
 See [Twitch setup](docs/TWITCH_SETUP.md) to register the app and configure `TOKEN_ENCRYPTION_KEYS`. PostgreSQL stores encrypted access/refresh tokens and hashed browser sessions. The backend validates at startup and hourly, serializes reactive refreshes, preserves rotated refresh tokens, and ends sessions if authorization is revoked. Disconnect invalidates local sessions immediately and retries provider revocation through an encrypted queue if Twitch is unavailable.
 
-The no-credentials demo remains available. Automated account tests use a fake provider; real Twitch consent and live chat ingestion have not yet been tested. Never commit your Twitch client secret, database password, or encryption key.
+The no-credentials demo remains available. Automated account tests use a fake provider; real Twitch consent and chat delivery still need manual verification. Never commit your Twitch client secret, database password, or encryption key.
+
+
+## Test real Twitch chat
+
+The backend now receives creator-channel votes through Twitch EventSub, deduplicates event and chat IDs, and commits each vote and participation point together. It supports connection recovery and requires no viewer installation or chat-write scope. Demo mode remains separate and clearly labeled.
+
+Follow the complete [live chat setup and test guide](docs/LIVE_CHAT_TEST.md). On this Mac, `python3 scripts/dev_db.py start` starts an isolated project PostgreSQL database without Docker or your existing database's administrator password. Copy its printed DATABASE_URL into the ignored `.env`, set the Twitch credentials/encryption key and `DEMO_MODE=false`, apply migrations, and start the API.
+
+Manual chat testing needs your registered Twitch application, browser consent, and two viewer accounts. A signed-in browser can preview the overlay, but scoped live OBS access is still the next feature; live overlay URL copying is disabled until then. Automated EventSub tests use fixture sockets and notifications, not real Twitch.

@@ -14,11 +14,14 @@ class TwitchClient:
         self.client_id, self.client_secret = client_id, client_secret
         self.redirect_uri, self.opener = redirect_uri, opener
 
-    def _request(self, url, form=None, headers=None, invalid_codes=(401,)):
+    def _request(self, url, form=None, headers=None, invalid_codes=(401,), json_body=None):
         data = urlencode(form).encode() if form is not None else None
         headers = dict(headers or {})
         if data is not None:
             headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        if json_body is not None:
+            data=json.dumps(json_body).encode()
+            headers['Content-Type']='application/json'
         request = Request(url, data=data, headers=headers, method='POST' if data is not None else 'GET')
         try:
             with self.opener(request, timeout=10) as response:
@@ -27,7 +30,7 @@ class TwitchClient:
                     raise TwitchFailure('unavailable')
                 return json.loads(raw) if raw else {}
         except HTTPError as error:
-            raise TwitchFailure('invalid' if error.code in invalid_codes else 'unavailable') from None
+            raise TwitchFailure('invalid' if error.code in invalid_codes else 'forbidden' if error.code==403 else 'unavailable') from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise TwitchFailure('unavailable') from None
 
@@ -60,3 +63,17 @@ class TwitchClient:
 
     def revoke(self, access):
         self._request('https://id.twitch.tv/oauth2/revoke', form={'client_id':self.client_id,'token':access}, invalid_codes=(400,))
+
+    def subscribe_chat(self, access, broadcaster_id, session_id):
+        result=self._request('https://api.twitch.tv/helix/eventsub/subscriptions',
+            headers={'Client-Id':self.client_id,'Authorization':f'Bearer {access}'},
+            json_body={'type':'channel.chat.message','version':'1',
+                       'condition':{'broadcaster_user_id':broadcaster_id,'user_id':broadcaster_id},
+                       'transport':{'method':'websocket','session_id':session_id}})
+        try:
+            row=result['data'][0]
+            if row['status']!='enabled' or not isinstance(row['id'],str) or not row['id']:
+                raise ValueError('invalid subscription')
+            return row['id']
+        except (KeyError,IndexError,TypeError,ValueError):
+            raise TwitchFailure('unavailable') from None

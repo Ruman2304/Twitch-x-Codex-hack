@@ -14,7 +14,7 @@ Versioned SQL migrations create normalized sessions, challenges, rounds, options
 
 Restart recovery reloads absolute deadlines, resolves overdue votes/attempts on the next authorized read/action, and preserves frozen remaining time for paused sessions. Game and account state are durable when PostgreSQL is configured. An optional demo-only account store uses encrypted credentials in memory. Multiple-session routes, archival retention, Alembic/SQLAlchemy, and the FastAPI transport remain target work.
 
-Next keep provider EventSub IDs unique in an inbox. Encrypted durable OAuth storage/refresh is implemented; add EventSub ingestion and versioned WebSocket delivery with reconnect snapshots. Redis is intended for ephemeral delivery and rate limits, not authoritative state.
+Next keep provider EventSub IDs unique in an inbox. Encrypted durable OAuth storage/refresh is implemented; EventSub ingestion is now implemented; add versioned browser WebSocket delivery with reconnect snapshots. Redis is intended for ephemeral delivery and rate limits, not authoritative state.
 
 ## Target shape from product spec
 
@@ -29,3 +29,14 @@ Next keep provider EventSub IDs unique in an inbox. Encrypted durable OAuth stor
 ## Trust boundaries
 
 The browser never receives client secrets, Twitch refresh tokens, or AI keys. Viewer text is untrusted input and only the exact `!vote <1-3>` command is parsed. Approval and all challenge/round/attempt state transitions are enforced server-side. Store broad context labels only; do not request precise location. The overlay can read a session snapshot but cannot mutate it.
+
+
+## EventSub ingestion
+
+The live API starts one receiver per configured workspace. A PostgreSQL session advisory lock elects the active receiver across processes. The worker subscribes to the creator's own chat using their user access token and `user:read:chat`. Only server-authenticated notifications for that subscription/channel can enter the internal ingestion method; there is no public HTTP vote-injection endpoint. Demo mode never starts the real receiver.
+
+The strict command parser emits only message IDs, Twitch identity/display name, option, broadcaster, and timestamp. It rejects unrelated chat, wrong/shared channels, invalid options, and malformed envelopes. A single workspace transaction claims both provider and chat-message IDs, checks the current server deadline and live window, upserts the vote, and writes its idempotent participation event. Ignored late/paused commands are also deduplicated and cannot be counted later. No raw chat body is stored. Previous-round or pre-resume notifications cannot bleed into a new voting window. Leaderboards group by Twitch identity rather than display name.
+
+The receiver handles Twitch welcome/subscription deadlines, protocol ping/pong, application keepalive timeouts, 401 refresh, revocation, reconnect backoff, and cold resubscription. Twitch-requested reconnects validate and preserve the exact trusted TLS reconnect URL, read old notifications during handover, wait for the new welcome before closing the old socket, and keep the migrated subscription. Lost events during a hard outage are not replayed by Twitch. Intake state and heartbeat are stored for other API instances; stale runtime status becomes reconnecting.
+
+Dashboard and preview still poll snapshots. The live OBS browser source needs a scoped token in the next slice; only a creator-cookie browser preview is supported today. See LIVE_CHAT_TEST.md for manual verification and current limits.

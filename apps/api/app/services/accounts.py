@@ -163,6 +163,11 @@ class AccountService:
             raise DomainError('twitch_reconnect_required',401)
         return access
 
+    def invalidate_connection(self, uid):
+        with self.store.transaction() as unit:
+            if uid in unit.state['connections']:
+                self._invalidate(unit.state,uid)
+
     def disconnect(self, raw_session):
         job_id = None
         with self.store.transaction() as unit:

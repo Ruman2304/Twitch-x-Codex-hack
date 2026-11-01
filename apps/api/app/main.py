@@ -55,6 +55,7 @@ def build_game():
 # Construct storage only at server startup, never as an import side effect.
 GAME = None
 AUTH = None
+CHAT = None
 
 def build_auth(game):
     keys = os.getenv("TOKEN_ENCRYPTION_KEYS", "").strip()
@@ -71,6 +72,13 @@ def build_auth(game):
         return AccountService(store, TokenCipher(keys), TwitchClient(TWITCH_CLIENT_ID,TWITCH_CLIENT_SECRET,TWITCH_REDIRECT_URI))
     except ImportError:
         raise RuntimeError("Install apps/api/requirements.txt before enabling Twitch authentication.") from None
+
+def chat_status():
+    return CHAT.snapshot() if CHAT else {"state":"demo" if GAME.demo else "disabled"}
+
+def with_chat(snapshot):
+    snapshot["chat"] = chat_status()
+    return snapshot
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "DareLoopDemo/0.1"
@@ -160,11 +168,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"data": {"connected": bool(user), "user": user, "demo_mode": DEMO, "can_create_session": can_create, "auth_ready": AUTH is not None, "auth_storage": AUTH.store.storage if AUTH else "disabled", "reconnect_required": bool(self.cookie_value("dareloop_session")) and not user}, "error": None})
         if path == "/api/v1/state":
             try:
-                return self.send_json(200, {"data": GAME.snapshot(self.actor_id()), "error": None, "request_id": str(uuid.uuid4())})
+                return self.send_json(200, {"data": with_chat(GAME.snapshot(self.actor_id())), "error": None, "request_id": str(uuid.uuid4())})
             except DomainError as error:
                 return self.error_json(error)
         if path == "/api/v1/health": return self.send_json(200, {"ok": True, "demo_mode": DEMO, "storage": GAME.repository.storage})
-        if path == "/overlay/demo": path = "/overlay.html"
+        if path in ("/overlay/demo", "/overlay/preview"): path = "/overlay.html"
         if path == "/": path = "/index.html"
         safe = (WEB / path.lstrip("/")).resolve()
         if not safe.is_relative_to(WEB.resolve()) or not safe.is_file(): return self.send_error(404)
@@ -179,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._clear_cookie(pending)
             data = self.read_json()
             result = GAME.execute(path, data, self.actor_id())
-            return self.send_json(200, {"data": result, "error": None, "request_id": str(uuid.uuid4())})
+            return self.send_json(200, {"data": with_chat(result), "error": None, "request_id": str(uuid.uuid4())})
         except DomainError as error:
             return self.error_json(error)
         except (ValueError, UnicodeDecodeError):
@@ -192,6 +200,12 @@ if __name__ == "__main__":
     GAME = build_game()
     AUTH = build_auth(GAME)
     account_stop = AUTH.start_worker() if AUTH else None
+    if not DEMO and os.getenv("TWITCH_EVENTSUB_ENABLED","true").lower()=="true":
+        try:
+            from apps.api.app.integrations.eventsub import EventSubWorker
+            CHAT = EventSubWorker(GAME,AUTH).start()
+        except ImportError:
+            raise RuntimeError("Install apps/api/requirements.txt for EventSub support.") from None
     host=os.getenv("HOST","127.0.0.1"); port=int(os.getenv("PORT","8000"))
     print(f"DareLoop Live demo at http://{host}:{port} (DEMO_MODE={str(DEMO).lower()})")
     try:
@@ -199,5 +213,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
+        if CHAT:
+            CHAT.stop()
         if account_stop:
             account_stop.set()
