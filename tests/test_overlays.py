@@ -1,4 +1,5 @@
 """OBS capability security, approved projection, persistence and real HTTP contract."""
+from challenge_fixtures import add_challenges
 import json
 import os
 import uuid
@@ -17,7 +18,7 @@ from test_backend import Clock
 class OverlayTests(unittest.TestCase):
     def setUp(self):
         self.clock=Clock();self.repo=MemoryRepository();self.game=SessionService(False,self.clock,self.repo)
-        self.game.execute('/api/v1/sessions',{},'42')
+        self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
     def call(self,path,data=None):return self.game.execute('/api/v1/'+path,data or {},'42')
     def ready(self):
         for c in self.game.snapshot('42')['challenges'][:2]:self.call('challenges/'+c['id']+'/approval',{'approval':'approved'})
@@ -92,11 +93,11 @@ class PostgresOverlayTests(OverlayTests):
     def setUpClass(cls):PostgresRepository(os.environ['TEST_DATABASE_URL']).migrate()
     def setUp(self):
         self.clock=Clock();self.repo=PostgresRepository(os.environ['TEST_DATABASE_URL'],'overlay-'+str(uuid.uuid4()),False)
-        self.game=SessionService(False,self.clock,self.repo);self.game.execute('/api/v1/sessions',{},'42')
+        self.game=SessionService(False,self.clock,self.repo);self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
 
 class OverlayHTTPTests(unittest.TestCase):
     def setUp(self):
-        self.game=SessionService(False);self.game.execute('/api/v1/sessions',{},'42')
+        self.game=SessionService(False);self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
         auth=Mock();auth.authenticate.side_effect=lambda cookie: {'id':'42'} if cookie=='owner-cookie' else None
         auth.disconnect.return_value=False
         self.patches=[patch.object(main,'GAME',self.game),patch.object(main,'AUTH',auth),patch.object(main,'CHAT',None),patch.object(main.Handler,'log_message',lambda *args:None)]

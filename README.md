@@ -97,7 +97,7 @@ python apps/api/app/main.py
 
 ## 🕹️ Interactive Demo Walkthrough
 
-1. **Review Challenges**: In **Challenge Forge**, review the seeded safe campus challenges and approve 2 or 3 candidates.
+1. **Review Challenges**: In **Challenge Forge**, use **Add challenge** to write your own challenges, then approve two or three candidates.
 2. **Launch a Round**: In **Live Arena**, click **"Open voting round"**.
 3. **Simulate Votes**:
    - Scroll down to the **Demo Chat** section.
@@ -232,7 +232,7 @@ Manual chat testing needs your registered Twitch application, browser consent, a
 
 In **Challenge Forge**, click **Add challenge**, enter a title, instructions, category and duration (30–1800 seconds), confirm that you reviewed its safety, then choose **Save for review**. The challenge stays pending until you explicitly approve it. Use **Next vote** checkboxes to select two or three approved challenges; uncheck an older choice to include a new one. The active round is unchanged by saving drafts or changing next-round selections.
 
-Custom drafts and approvals persist in PostgreSQL within the current session. Ending a session and creating a new one starts a fresh challenge pool. The curated suggestions remain available separately. Validation checks field types, text limits, duration and the creator's acknowledgement; automated AI moderation remains pending. Viewer-created suggestions are not included.
+Custom drafts and approvals persist in PostgreSQL within the current session. Ending a session and creating a new one starts a fresh challenge pool. Sessions start empty; the six old presets and curated suggestion option have been removed. Validation checks field types, text limits, duration and the creator's acknowledgement; automated AI moderation remains pending. Viewer-created suggestions are not included.
 
 
 ### Live OBS Browser Source

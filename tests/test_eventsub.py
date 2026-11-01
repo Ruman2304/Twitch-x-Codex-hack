@@ -1,4 +1,5 @@
 """EventSub envelope, lifecycle, durable inbox and receiver protocol tests."""
+from challenge_fixtures import add_challenges
 import copy
 import json
 import os
@@ -68,7 +69,7 @@ class SubscriptionTests(unittest.TestCase):
 class IngestionTests(unittest.TestCase):
     def setUp(self):
         self.clock=Clock();self.repo=MemoryRepository();self.game=SessionService(demo=False,clock=self.clock,repository=self.repo)
-        self.game.execute('/api/v1/sessions',{},'42')
+        self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
         for row in self.game.snapshot('42')['challenges']:
             self.game.execute('/api/v1/challenges/'+row['id']+'/approval',{'approval':'approved'},'42')
         self.game.execute('/api/v1/rounds',{},'42')
@@ -141,7 +142,7 @@ class PostgresIngestionTests(IngestionTests):
         self.clock=Clock()
         self.repo=PostgresRepository(os.environ['TEST_DATABASE_URL'],'chat-'+str(uuid.uuid4()),demo=False)
         self.game=SessionService(demo=False,clock=self.clock,repository=self.repo)
-        self.game.execute('/api/v1/sessions',{},'42')
+        self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
         for row in self.game.snapshot('42')['challenges']:
             self.game.execute('/api/v1/challenges/'+row['id']+'/approval',{'approval':'approved'},'42')
         self.game.execute('/api/v1/rounds',{},'42')

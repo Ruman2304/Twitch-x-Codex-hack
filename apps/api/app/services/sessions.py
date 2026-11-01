@@ -29,6 +29,10 @@ class SessionService:
             try:
                 with self.repository.transaction(self._initial) as unit:
                     self.state = unit.state
+                    # Retire old presets without deleting historical round references.
+                    for challenge in self.state['challenges']:
+                        if challenge.get('source') == 'curated':
+                            challenge['archived'] = True
                     self._unit = unit
                     self._depth = 1
                     try:
@@ -50,7 +54,7 @@ class SessionService:
         return dict(session=dict(id=str(uuid.uuid4()), creator_id=owner,
                     title='Campus Field Notes', context='Campus', difficulty='Easy',
                     status='live' if self.demo or owner else 'draft', version=1),
-                    challenges=[safety.challenge(c) for c in safety.SEEDS],
+                    challenges=[],
                     round=None, attempt=None, votes={}, scores={}, score_events={}, activity=[])
 
     def authorize(self, actor):
@@ -89,7 +93,7 @@ class SessionService:
             self._tick()
             s = self.state
             return copy.deepcopy(dict(demo_mode=self.demo, server_time=self.clock(),
-                    storage=self.repository.storage, session={k:v for k,v in s['session'].items() if k != 'overlay_access'}, challenges=s['challenges'], round=s['round'],
+                    storage=self.repository.storage, session={k:v for k,v in s['session'].items() if k != 'overlay_access'}, challenges=[c for c in s['challenges'] if not c.get('archived')], round=s['round'],
                     attempt=s['attempt'], tallies=voting.tallies(s),
                     scores=scoring.leaderboard(s),
                     activity=s['activity'], viewers=voting.VIEWERS if self.demo else {}))
@@ -218,7 +222,7 @@ class SessionService:
                 self._event('Round skipped by creator')
                 return self.snapshot(actor)
             if path == '/api/v1/challenges':
-                if len(s['challenges']) >= 100:
+                if sum(not c.get('archived') for c in s['challenges']) >= 100:
                     raise DomainError('challenge_limit_reached')
                 s['challenges'].append(safety.custom_challenge(data))
                 self._event('Custom challenge added for creator review')
@@ -228,12 +232,6 @@ class SessionService:
             if path.startswith('/api/v1/challenges/') and path.endswith('/approval'):
                 c = safety.approve(s, path.split('/')[-2], data.get('approval'))
                 self._event(c['title']+' '+c['approval_status'])
-            elif path == '/api/v1/challenges/curated':
-                index = sum(c['source']=='curated' for c in s['challenges']) - len(safety.SEEDS)
-                if index >= len(safety.SAFE_PACK):
-                    raise DomainError('curated_pack_exhausted')
-                s['challenges'].append(safety.challenge(safety.SAFE_PACK[index]))
-                self._event('Curated challenge added for review')
             elif path == '/api/v1/rounds':
                 voting.open_round(s, now, data.get('challenge_ids'))
                 self._event('Voting opened for 60 seconds')

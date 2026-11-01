@@ -1,28 +1,17 @@
-"""Curated challenge approval boundary; AI policy validation is a later slice."""
+"""Creator challenge validation and explicit approval boundary."""
 import uuid
 import unicodedata
 from .common import DomainError
-
-SEEDS = [
-    ('Spot three tree species', 'Find three different tree species in a public area. No need to leave the permitted grounds.', 120, 30, 'Discovery'),
-    ('Find a public art detail', 'Notice one detail in a public art installation without interrupting anyone.', 90, 25, 'Observation'),
-    ('Architecture texture hunt', 'Find an interesting building texture from a public path. Capture it only if no people are in frame.', 100, 25, 'Photography'),
-]
-SAFE_PACK = [
-    ('Find a quiet color palette', 'Notice three colors from a permitted public path. Do not enter closed areas.', 90, 20, 'Observation'),
-    ('Spot a wayfinding symbol', 'Describe a public sign without recording people or private information.', 90, 20, 'Discovery'),
-    ('Skyline shape study', 'Find a distinctive roofline from a permitted spot. No climbing or leaving public paths.', 120, 25, 'Observation'),
-]
 
 def challenge(values):
     title, instructions, duration, points, category = values
     return dict(id=str(uuid.uuid4()), title=title, instructions=instructions,
                 duration_sec=duration, points=points, category=category,
                 safety_notes='Stay in a permitted area. Do not film people without consent.',
-                approval_status='pending', source='curated')
+                approval_status='pending', source='creator')
 
 def find(state, cid):
-    row = next((c for c in state['challenges'] if c['id'] == cid), None)
+    row = next((c for c in state['challenges'] if c['id'] == cid and not c.get('archived')), None)
     if row is None:
         raise DomainError('challenge_not_found', 404)
     return row

@@ -1,4 +1,5 @@
 """P0 lifecycle regression tests. No Twitch credentials or network required."""
+from challenge_fixtures import add_challenges
 import io
 import json
 import time
@@ -19,6 +20,7 @@ class LifecycleTests(unittest.TestCase):
     def setUp(self):
         self.clock = Clock()
         self.game = SessionService(clock=self.clock)
+        add_challenges(self.game)
 
     def call(self, path, **data): return self.game.execute('/api/v1/'+path, data)
 

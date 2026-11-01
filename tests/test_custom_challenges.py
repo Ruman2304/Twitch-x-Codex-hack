@@ -1,4 +1,5 @@
 """Creator-authored challenge validation, approval and voting contract."""
+from challenge_fixtures import add_challenges
 import os
 import unittest
 import uuid
@@ -15,10 +16,27 @@ class CustomChallengeTests(unittest.TestCase):
     def setUp(self):
         self.clock=Clock();self.repo=MemoryRepository()
         self.game=SessionService(demo=False,clock=self.clock,repository=self.repo)
-        self.game.execute('/api/v1/sessions',{},'42')
+        self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
     def call(self,path,data=None,actor='42'):return self.game.execute('/api/v1/'+path,data or {},actor)
     def create(self,data=None):return self.call('challenges',draft() if data is None else data)['challenges'][-1]
     def approve(self,row):return self.call('challenges/'+row['id']+'/approval',{'approval':'approved'})
+    def test_replacement_session_starts_empty(self):
+        self.call('session/end');self.call('sessions')
+        self.assertEqual(self.game.snapshot('42')['challenges'],[])
+        with self.assertRaises(DomainError):self.call('rounds')
+
+    def test_legacy_presets_retired_but_creator_challenges_preserved(self):
+        legacy=dict(self.game.snapshot('42')['challenges'][0])
+        legacy.update(id=str(uuid.uuid4()),source='curated',title='Old preset',approval_status='approved')
+        with self.game._transaction():self.game.state['challenges'].append(legacy)
+        recovered=SessionService(demo=False,clock=self.clock,repository=self.repo)
+        rows=recovered.snapshot('42')['challenges']
+        self.assertEqual(len(rows),3);self.assertTrue(all(c['source']=='creator' for c in rows))
+        with self.assertRaises(DomainError):recovered.execute('/api/v1/challenges/'+legacy['id']+'/approval',{'approval':'approved'},'42')
+        with self.assertRaises(DomainError):recovered.execute('/api/v1/rounds',{'challenge_ids':[rows[0]['id'],legacy['id']]},'42')
+        restarted=SessionService(demo=False,clock=self.clock,repository=self.repo)
+        self.assertEqual(restarted.snapshot('42')['challenges'],rows)
+
     def test_save_is_pending_and_survives_recreation(self):
         row=self.create()
         self.assertEqual(row['source'],'creator');self.assertEqual(row['approval_status'],'pending')
@@ -58,11 +76,11 @@ class CustomChallengeTests(unittest.TestCase):
     def test_other_user_and_anonymous_cannot_create(self):
         for actor in [None,'different-user']:
             with self.subTest(actor=actor),self.assertRaises(DomainError):self.call('challenges',draft(),actor)
-    def test_custom_challenge_does_not_consume_curated_pack(self):
+    def test_curated_suggestion_endpoint_removed(self):
         self.create()
-        titles=[]
-        for _ in range(3):titles.append(self.call('challenges/curated')['challenges'][-1]['title'])
-        self.assertEqual(titles,['Find a quiet color palette','Spot a wayfinding symbol','Skyline shape study'])
+        with self.assertRaises(DomainError) as error:self.call('challenges/curated')
+        self.assertEqual(error.exception.status,404)
+        self.assertEqual(len(self.game.snapshot('42')['challenges']),4)
     def test_saving_during_vote_cannot_change_the_active_options(self):
         rows=self.game.snapshot('42')['challenges']
         for row in rows:self.approve(row)
@@ -92,6 +110,6 @@ class PostgresCustomChallengeTests(CustomChallengeTests):
     def setUp(self):
         self.clock=Clock();self.repo=PostgresRepository(os.environ['TEST_DATABASE_URL'],'custom-'+str(uuid.uuid4()),demo=False)
         self.game=SessionService(demo=False,clock=self.clock,repository=self.repo)
-        self.game.execute('/api/v1/sessions',{},'42')
+        self.game.execute('/api/v1/sessions',{},'42');add_challenges(self.game,'42')
 
 if __name__=='__main__':unittest.main()

@@ -3,6 +3,7 @@
 Every test uses an isolated workspace; no existing rows or schemas are deleted.
 The database is migrated, so never point this suite at a production database.
 """
+from challenge_fixtures import add_challenges
 import os
 import tempfile
 from pathlib import Path
@@ -43,6 +44,7 @@ class PostgresTests(unittest.TestCase):
         self.clock = Clock()
         self.repository = PostgresRepository(self.dsn, self.workspace)
         self.service = SessionService(repository=self.repository, clock=self.clock)
+        add_challenges(self.service)
 
     def call(self, path, **data): return self.service.execute('/api/v1/'+path, data)
 
@@ -203,6 +205,7 @@ class PostgresLifecycleTests(_LifecycleContract):
         self.clock = Clock()
         repository = PostgresRepository(self.dsn, 'contract-'+str(uuid.uuid4()))
         self.game = SessionService(clock=self.clock, repository=repository)
+        add_challenges(self.game)
 
 # Avoid collecting the imported base class a second time in this module.
 del _LifecycleContract

@@ -28,7 +28,7 @@ def verify(state, token, now):
 def project(state, demo, now):
     """Allowlist fields: no review pool, activity, identities, scores or credentials."""
     session = state['session']
-    approved = {c['id']: c for c in state['challenges'] if c['approval_status'] == 'approved'}
+    approved = {c['id']: c for c in state['challenges'] if c['approval_status'] == 'approved' and not c.get('archived')}
     result = dict(demo_mode=demo, server_time=now,
                   session={'id': session['id'], 'status': session['status']}, round=None, attempt=None, tallies={})
     if session['status'] not in ('live', 'paused'):

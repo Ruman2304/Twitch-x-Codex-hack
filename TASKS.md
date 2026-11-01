@@ -102,3 +102,11 @@ This adds streamer-authored challenges; AI moderation and viewer submissions rem
 - [x] Test owner enforcement, expiry, restart persistence, approval revocation, HTTP read-only boundaries and rendering.
 
 Transport still polls once per second; WebSocket delivery remains pending.
+
+
+## Creator-only challenge pool
+
+- [x] Start new sessions and demo resets with an empty challenge pool.
+- [x] Remove all six fixed suggestions and the curated-suggestion action.
+- [x] Retire legacy preset records from review/voting/overlay use while preserving historical references and creator-authored challenges.
+- [x] Show an empty-state guide directing the streamer to Add challenge.

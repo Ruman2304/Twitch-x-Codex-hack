@@ -17,7 +17,7 @@ def open_round(state, now, challenge_ids=None):
     attempt = state['attempt']
     if attempt and attempt['status'] in ('running', 'paused', 'expired'):
         raise DomainError('finish_or_skip_attempt_first')
-    approved = [c for c in state['challenges'] if c['approval_status'] == 'approved']
+    approved = [c for c in state['challenges'] if c['approval_status'] == 'approved' and not c.get('archived')]
     if challenge_ids is not None:
         if not isinstance(challenge_ids,list) or not 2 <= len(challenge_ids) <= 3 or not all(isinstance(cid,str) for cid in challenge_ids) or len(set(challenge_ids)) != len(challenge_ids):
             raise DomainError('select_two_or_three_approved_challenges',400)
