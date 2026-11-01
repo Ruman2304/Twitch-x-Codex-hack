@@ -1,14 +1,14 @@
 # Test real Twitch chat voting
 
-This walkthrough tests the local creator dashboard receiving real chat votes through Twitch EventSub. Use branch `bilal/backend`. You need your Twitch creator account, an app registered to that account, PostgreSQL, and two viewer accounts (friends can participate). Viewers use normal Twitch chat and install nothing.
+This walkthrough tests the local creator dashboard receiving real chat votes through Twitch EventSub. The completed build is on `main`. You need your Twitch creator account, an app registered to that account, PostgreSQL, and two viewer accounts (friends can participate). Viewers use normal Twitch chat and install nothing.
 
-Automated checks use fake provider events; your browser consent and actual Twitch chat are the remaining real-provider verification. This is the local installed-app WebSocket flow, with the streamer also acting as the authorized chat reader. No chat-write or moderator scope is requested.
+Automated checks use fake provider events. The creator has manually verified real sign-in, chat voting and OBS output; repeat these checks with your own app credentials. This is the local installed-app WebSocket flow, with the streamer also acting as the authorized chat reader. No chat-write or moderator scope is requested.
 
 ## 1 Open the project and install dependencies
 
 ```bash
-cd /Users/bilalhasan/Twitch-x-Codex-hack
-git switch bilal/backend
+cd Twitch-x-Codex-hack
+git switch main
 python3 -m venv .venv
 .venv/bin/python -m pip install -r apps/api/requirements.txt
 ```
@@ -17,7 +17,7 @@ The frontend is served directly by the API; no separate frontend build is requir
 
 ## 2 Start the development database
 
-PostgreSQL 18 was found installed on this Mac. The helper creates a separate cluster under the ignored `.local/postgres` directory and does not modify your existing system database:
+With PostgreSQL binaries installed, the helper creates a separate cluster under the ignored `.local/postgres` directory and does not modify your existing system database:
 
 ```bash
 python3 scripts/dev_db.py start

@@ -14,7 +14,7 @@ Versioned SQL migrations create normalized sessions, challenges, rounds, options
 
 Restart recovery reloads absolute deadlines, resolves overdue votes/attempts on the next authorized read/action, and preserves frozen remaining time for paused sessions. Game and account state are durable when PostgreSQL is configured. An optional demo-only account store uses encrypted credentials in memory. Multiple-session routes, archival retention, Alembic/SQLAlchemy, and the FastAPI transport remain target work.
 
-Next keep provider EventSub IDs unique in an inbox. Encrypted durable OAuth storage/refresh is implemented; EventSub ingestion is now implemented; add versioned browser WebSocket delivery with reconnect snapshots. Redis is intended for ephemeral delivery and rate limits, not authoritative state.
+Encrypted durable OAuth storage/refresh and deduplicated EventSub ingestion are implemented. Add versioned browser WebSocket delivery with reconnect snapshots next. Redis is intended for ephemeral delivery and rate limits, not authoritative state.
 
 ## Target shape from product spec
 
@@ -47,3 +47,5 @@ Dashboard and overlay still poll once per second. The live OBS Browser source us
 `services/overlays.py` creates random 256-bit capabilities and projects an explicit allowlist of public session, approved round choices/tallies and approved attempt fields. Issuance and revocation run under the same workspace transaction as game actions; PostgreSQL persists only the token hash/expiry inside session metadata. Normal creator snapshots omit that metadata. Links bind to the active session, expire after 12 hours, and rotate/revoke atomically. Ending/replacing the session or disconnecting Twitch invalidates access.
 
 `/overlay/live#token=…` is a public shell. Its JavaScript sends the fragment token in an Authorization header to `GET /api/v1/overlay/state`, with cookies omitted. The token is never a game actor. Preview reads `GET /api/v1/overlay/preview` with creator cookies (demo permits local simulation). Static resources send no-referrer/no-store. No unapproved pool, creator identity, review activity, browser sessions or Twitch credentials enter the projection. Errors clear stale overlay content; invalid capabilities stop polling until the source URL is updated. WebSocket delivery remains pending.
+
+New sessions start with an empty creator-only challenge pool. Legacy curated records are archived out of review, voting eligibility and broadcast projection while retaining historical database references. Screenshots and regression tests create their own explicit example challenges; no presets are shipped.

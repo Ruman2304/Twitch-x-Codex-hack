@@ -32,7 +32,7 @@ Generate a Fernet key in your own terminal:
 Copy the result into `TOKEN_ENCRYPTION_KEYS` in the ignored `.env`. Keep the same key across restarts. Do not commit it, paste it into frontend code, or store it in the database alongside the ciphertext. Losing all configured keys makes saved credentials unreadable; restore the key or reconnect affected accounts.
 
 ```dotenv
-DEMO_MODE=true
+DEMO_MODE=false
 TWITCH_CLIENT_ID=your-client-id
 TWITCH_CLIENT_SECRET=your-client-secret
 TWITCH_REDIRECT_URI=http://localhost:8000/api/v1/auth/twitch/callback
@@ -70,7 +70,7 @@ Browser cookies contain random opaque session identifiers. Only SHA-256 hashes a
 
 Future server-only Twitch adapters obtain a token through `AccountService.access_token(user_id)`. On an actual Twitch 401, call it again with `rejected_token=the_token_that_failed` and retry the provider operation once. Never expose this token-returning method as a browser endpoint.
 
-With `DEMO_MODE=false`, sign in and select **Create live session**. Game reads and actions require that creator's authenticated cookie. One workspace per server configuration remains the current limitation; scoped live OBS tokens and browser WebSocket delivery remain pending.
+With `DEMO_MODE=false`, sign in and select **Create live session**. Game reads and actions require that creator's authenticated cookie. One workspace per server configuration remains the current limitation; scoped live OBS access is implemented; browser WebSocket delivery remains pending. See [OBS setup](OBS_SETUP.md).
 
 ## Automated verification
 
