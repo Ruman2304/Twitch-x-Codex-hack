@@ -56,8 +56,9 @@ function render(data) {
   $('.chat-sim .section-note').textContent=data.demo_mode?'Be the audience for a moment. Send a simulated vote below.':'Viewers vote in your channel using !vote 1, !vote 2, or !vote 3.';
   $('#open-twitch-chat').classList.toggle('hidden',data.demo_mode||!ui.twitchLogin);
   if(ui.twitchLogin)$('#open-twitch-chat').href=`https://www.twitch.tv/popout/${encodeURIComponent(ui.twitchLogin)}/chat?popout=`;
-  $('#copy-overlay').disabled=!data.demo_mode;
-  $('#copy-overlay').title=data.demo_mode?'Copy local demo overlay URL':'Live OBS access is coming next. Use browser preview for now.';
+  $('#copy-overlay').disabled=false;
+  $('#copy-overlay').title='Set up a transparent OBS Browser Source';
+  if(ui.overlaySession!==session.id){ui.overlaySession=session.id;ui.overlayUrl='';$('#obs-url').value='';$('#copy-obs-link').disabled=true;}
   $('#audience-meter').style.width=`${Math.min(100,total/3*100)}%`;
   $('#round-state').textContent=voting?'VOTING OPEN':resolved?'RESULT LOCKED':'STANDBY';
   const options=round?.options||[];
@@ -119,7 +120,25 @@ $('#skip-round').onclick=()=>action('/api/v1/rounds/skip',{},'Round skipped. Not
 $('#create-session').onclick=()=>action('/api/v1/sessions',{},'Your session is ready.');
 $('#end-session').onclick=()=>{if(confirm('End this session and stop its active round or challenge?'))action('/api/v1/session/end',{},'Session ended.');};
 $('#overlay-link').onclick=()=>window.open(ui.data?.demo_mode===false?'/overlay/preview':'/overlay/demo','dareloop-overlay','noopener');
-$('#copy-overlay').onclick=async()=>{const url=new URL('/overlay/demo',location.origin).href;try{await navigator.clipboard.writeText(url);toast('Overlay URL copied. Add it as an OBS browser source.');}catch{toast(`Overlay: ${url}`);}};
+const obsDialog=$('#obs-dialog');
+$('#copy-overlay').onclick=()=>{
+  obsDialog.showModal();
+  $('#obs-link-status').textContent=ui.data?.demo_mode?'Demo overlay uses simulated activity.':'Create a link, then paste it into OBS. Creating a new link replaces the previous one.';
+  $('#generate-obs-link').disabled=ui.data?.session.status==='ended'||ui.data?.session.status==='draft';
+};
+$('#close-obs-dialog').onclick=()=>obsDialog.close();
+let overlayBusy=false;
+$('#generate-obs-link').onclick=async()=>{
+  if(overlayBusy)return;overlayBusy=true;$('#generate-obs-link').disabled=true;
+  try{
+    if(ui.data?.demo_mode){ui.overlayUrl=new URL('/overlay/demo',location.origin).href;$('#obs-link-status').textContent='DEMO · simulated votes only.';}
+    else{const link=await request('/api/v1/overlay/link');ui.overlayUrl=new URL('/overlay/live',location.origin).href+'#token='+encodeURIComponent(link.token);$('#obs-link-status').textContent='Live link ready. Expires '+new Date(link.expires_at*1000).toLocaleString()+'. Previous link revoked.';}
+    $('#obs-url').value=ui.overlayUrl;$('#copy-obs-link').disabled=false;
+  }catch(error){$('#obs-link-status').textContent=error.message;}finally{overlayBusy=false;$('#generate-obs-link').disabled=false;}
+};
+$('#copy-obs-link').onclick=async()=>{try{await navigator.clipboard.writeText($('#obs-url').value);$('#obs-link-status').textContent='Copied. Paste into the URL field of your OBS Browser source.';}catch{$('#obs-url').focus();$('#obs-url').select();$('#obs-link-status').textContent='Select and copy the link above.';}};
+$('#revoke-obs-link').onclick=async()=>{if(overlayBusy)return;overlayBusy=true;try{await request('/api/v1/overlay/revoke');ui.overlayUrl='';$('#obs-url').value='';$('#copy-obs-link').disabled=true;$('#obs-link-status').textContent='Live link revoked. OBS will stop showing this session.';}catch(error){$('#obs-link-status').textContent=error.message;}finally{overlayBusy=false;}};
+
 $('#challenge-list').addEventListener('change',event=>{const input=event.target.closest('[data-vote-id]');if(!input)return;ui.selectionTouched=true;if(input.checked){if(ui.selectedChallengeIds.length>=3){input.checked=false;toast('Choose up to three. Uncheck another challenge first.');return;}ui.selectedChallengeIds.push(input.dataset.voteId);}else{ui.selectedChallengeIds=ui.selectedChallengeIds.filter(id=>id!==input.dataset.voteId);}if(ui.data){const id=input.dataset.voteId;render(ui.data);$('#challenge-list').querySelector(`[data-vote-id="${id}"]`)?.focus();}});
 const challengeDialog=$('#challenge-dialog');
 let savingChallenge=false;

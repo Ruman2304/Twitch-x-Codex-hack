@@ -6,7 +6,7 @@ import uuid
 from contextlib import contextmanager
 from ..persistence.repository import MemoryRepository
 from .common import DomainError
-from . import safety, voting, scoring
+from . import safety, voting, scoring, overlays
 
 class SessionService:
     def __init__(self, demo=True, clock=time.time, repository=None):
@@ -89,10 +89,27 @@ class SessionService:
             self._tick()
             s = self.state
             return copy.deepcopy(dict(demo_mode=self.demo, server_time=self.clock(),
-                    storage=self.repository.storage, session=s['session'], challenges=s['challenges'], round=s['round'],
+                    storage=self.repository.storage, session={k:v for k,v in s['session'].items() if k != 'overlay_access'}, challenges=s['challenges'], round=s['round'],
                     attempt=s['attempt'], tallies=voting.tallies(s),
                     scores=scoring.leaderboard(s),
                     activity=s['activity'], viewers=voting.VIEWERS if self.demo else {}))
+
+    def overlay_link(self, actor, revoke=False):
+        with self._transaction():
+            self.authorize(actor)
+            if revoke:
+                overlays.revoke(self.state)
+                return {'revoked': True}
+            return overlays.issue(self.state, self.clock())
+
+    def overlay_snapshot(self, token=None, actor=None, preview=False):
+        with self._transaction():
+            if preview:
+                self.authorize(actor)
+            else:
+                overlays.verify(self.state, token, self.clock())
+            self._tick()
+            return overlays.project(self.state, self.demo, self.clock())
 
     def chat_target(self):
         with self._transaction():

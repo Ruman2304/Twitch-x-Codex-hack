@@ -2119,3 +2119,14 @@ button:hover:not(:disabled) {
 .form-error { color:#ffc4b5; font-size:12px; min-height:18px; }
 .dialog-actions { display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--line); padding-top:18px; }
 @media(max-width:520px) { #challenge-dialog { padding:20px; } .form-columns { grid-template-columns:1fr; gap:0; } .vote-pick { font-size:9px; } }
+
+/* OBS setup follows the creator form's native, keyboard-accessible dialog. */
+#obs-dialog{width:min(620px,calc(100vw - 28px));max-height:calc(100dvh - 40px);overflow:auto;background:var(--surface,#1b201b);color:var(--text,#f1f3ea);border:1px solid #596541;border-radius:12px;padding:28px;box-shadow:0 24px 100px #0008}
+#obs-dialog::backdrop{background:#060a08cc}
+#obs-dialog h2{font-family:var(--display);font-size:38px;margin:6px 0 12px}
+#obs-dialog p{font-size:13px;line-height:1.7;color:var(--muted);margin:12px 0}
+#obs-dialog label{display:block;font-size:12px;margin:20px 0 8px}
+#obs-url{width:100%;padding:12px;border:1px solid #596541;border-radius:6px;background:#111610;color:var(--text);font:12px var(--mono)}
+#obs-dialog .dialog-actions{flex-wrap:wrap}
+.overlay-content h1,.overlay-content p,.overlay-option span{overflow-wrap:anywhere}
+.overlay-brand{width:fit-content;padding:8px 12px;background:#151b14ed;border:1px solid #4a5738;border-radius:8px}

@@ -110,7 +110,7 @@ Disconnect Twitch through DareLoop. Creator actions should stop working until yo
 
 ## 10 Know the current limits
 
-**Preview OBS overlay** works in the signed-in browser for this test. A separate OBS browser source does not share that login. Scoped live OBS access tokens are the next slice; the live **Copy overlay URL** action is intentionally disabled. The unauthenticated `/overlay/demo` remains a demo-mode feature only. Do not treat browser preview as a completed live OBS integration.
+Follow [OBS setup](OBS_SETUP.md) to create a live read-only link and add it as an OBS Browser source. Preview uses creator cookies; the live link works without signing into Twitch inside OBS. Replacing/revoking a link or ending the session invalidates it.
 
 Twitch WebSockets reconnect with backoff and resubscribe after a hard connection loss. Twitch does not replay chat messages lost during that gap. Pause the session if needed, wait for **TWITCH CHAT CONNECTED**, and send a new vote. During a Twitch-requested handover, the receiver keeps the old socket open until the new welcome arrives and reuses the migrated subscription.
 

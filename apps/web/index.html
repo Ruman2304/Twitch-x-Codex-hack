@@ -48,10 +48,16 @@
 <div class="safety-note"><span>✳</span><p><b>You're always in control.</b><br>Chat chooses a direction.<br>You decide what happens next.</p></div>
 </aside>
 </div>
-<section class="setup-panel" id="settings"><div><div class="eyebrow">BEFORE YOU GO LIVE</div><h2>Your broadcast, connected.</h2><p id="connection-help">Demo mode uses simulated votes. Connect your creator account in live mode to receive Twitch chat votes. Pausing freezes the round and challenge timers.</p></div><div class="setup-actions"><button class="button button-primary hidden" id="create-session">Create live session ↗</button><button class="text-button" id="end-session">End session</button><button class="button button-outline" id="copy-overlay">Copy overlay URL ↗</button><button class="text-button" id="reset-demo">Reset demo ↻</button></div></section>
+<section class="setup-panel" id="settings"><div><div class="eyebrow">BEFORE YOU GO LIVE</div><h2>Your broadcast, connected.</h2><p id="connection-help">Demo mode uses simulated votes. Connect your creator account in live mode to receive Twitch chat votes. Pausing freezes the round and challenge timers.</p></div><div class="setup-actions"><button class="button button-primary hidden" id="create-session">Create live session ↗</button><button class="text-button" id="end-session">End session</button><button class="button button-outline" id="copy-overlay">Set up OBS overlay ↗</button><button class="text-button" id="reset-demo">Reset demo ↻</button></div></section>
 <footer class="page-footer"><span class="footer-brand">DARELOOP ↗ <span>MAKE A MOMENT OF IT.</span></span><span id="sync-status" role="status">CONNECTING TO LOCAL DEMO…</span></footer>
 </div>
-</main></div><dialog id="challenge-dialog" aria-labelledby="challenge-dialog-title">
+</main></div><dialog id="obs-dialog" aria-labelledby="obs-dialog-title">
+<div class="dialog-heading"><div><div class="eyebrow">YOUR LIVE BROADCAST</div><h2 id="obs-dialog-title">Bring chat on screen.</h2></div><button type="button" class="icon-button" id="close-obs-dialog" aria-label="Close OBS setup">×</button></div>
+<p>In OBS, add a <b>Browser</b> source above your camera or gameplay. Paste your link below and set width to <b>1920</b> and height to <b>1080</b>. The background is transparent.</p>
+<p>Each live link is read-only and lasts 12 hours, or until you end the session or revoke it. Creating a new link replaces the previous one. Keep the link private.</p>
+<label for="obs-url">OBS Browser Source URL</label><input id="obs-url" type="text" readonly placeholder="Create a link for this session" autocomplete="off" spellcheck="false">
+<p id="obs-link-status" role="status"></p><div class="dialog-actions"><button type="button" class="text-button" id="revoke-obs-link">Revoke live link</button><button type="button" class="button button-outline" id="generate-obs-link">Create new link</button><button type="button" class="button button-primary" id="copy-obs-link" disabled>Copy link ↗</button></div>
+</dialog><dialog id="challenge-dialog" aria-labelledby="challenge-dialog-title">
 <form id="challenge-form">
 <div class="dialog-heading"><div><div class="eyebrow">CHALLENGE FORGE</div><h2 id="challenge-dialog-title">Make it your own.</h2></div><button type="button" class="icon-button" id="close-challenge-dialog" aria-label="Close challenge form">×</button></div>
 <p class="dialog-description">Write a challenge for your stream. Save it for review, then approve it before adding it to a vote.</p>

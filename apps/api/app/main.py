@@ -166,26 +166,42 @@ class Handler(BaseHTTPRequestHandler):
             except DomainError as error:
                 return self.error_json(error)
             return self.send_json(200, {"data": {"connected": bool(user), "user": user, "demo_mode": DEMO, "can_create_session": can_create, "auth_ready": AUTH is not None, "auth_storage": AUTH.store.storage if AUTH else "disabled", "reconnect_required": bool(self.cookie_value("dareloop_session")) and not user}, "error": None})
+        if path in ("/api/v1/overlay/state", "/api/v1/overlay/preview"):
+            preview = path.endswith('/preview')
+            authorization = self.headers.get('Authorization', '')
+            token = authorization[7:] if authorization.startswith('Bearer ') else ''
+            data = GAME.overlay_snapshot(token=token, actor=self.actor_id() if preview else None, preview=preview)
+            return self.send_json(200, {"data": data, "error": None})
         if path == "/api/v1/state":
             try:
                 return self.send_json(200, {"data": with_chat(GAME.snapshot(self.actor_id())), "error": None, "request_id": str(uuid.uuid4())})
             except DomainError as error:
                 return self.error_json(error)
         if path == "/api/v1/health": return self.send_json(200, {"ok": True, "demo_mode": DEMO, "storage": GAME.repository.storage})
-        if path in ("/overlay/demo", "/overlay/preview"): path = "/overlay.html"
+        if path in ("/overlay/demo", "/overlay/preview", "/overlay/live"): path = "/overlay.html"
         if path == "/": path = "/index.html"
         safe = (WEB / path.lstrip("/")).resolve()
         if not safe.is_relative_to(WEB.resolve()) or not safe.is_file(): return self.send_error(404)
-        body = safe.read_bytes(); self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(safe.name)[0] or "application/octet-stream"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+        body = safe.read_bytes(); self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(safe.name)[0] or "application/octet-stream"); self.send_header("Content-Length", str(len(body))); self.send_header("Referrer-Policy", "no-referrer"); self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
         path = urlparse(self.path).path
         try:
             if not self.origin_allowed():
                 raise DomainError("origin_not_allowed", 403)
             if path == "/api/v1/auth/twitch/disconnect":
+                actor = self.actor_id()
+                if actor:
+                    try:
+                        GAME.overlay_link(actor, revoke=True)
+                    except DomainError as error:
+                        if error.code != 'session_access_denied':
+                            raise
                 pending = AUTH.disconnect(self.cookie_value("dareloop_session")) if AUTH else False
                 return self._clear_cookie(pending)
             data = self.read_json()
+            if path in ('/api/v1/overlay/link', '/api/v1/overlay/revoke'):
+                result = GAME.overlay_link(self.actor_id(), revoke=path.endswith('/revoke'))
+                return self.send_json(200, {"data": result, "error": None})
             result = GAME.execute(path, data, self.actor_id())
             return self.send_json(200, {"data": with_chat(result), "error": None, "request_id": str(uuid.uuid4())})
         except DomainError as error:

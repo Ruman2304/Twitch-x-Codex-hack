@@ -15,7 +15,7 @@
 - [ ] Replace polling with WebSocket events and reconnect snapshots.
 - [x] Add encrypted persistent token storage, serialized refresh/reconnect handling, and durable `/me` sessions.
 - [x] Add EventSub WebSocket `channel.chat.message`, persistent event/chat-message ID deduplication, and strict `!vote` parsing.
-- [ ] Add scoped, expiring, revocable overlay tokens and actual session ownership checks.
+- [x] Add scoped, expiring, revocable overlay tokens and actual session ownership checks.
 - [ ] Add structured challenge generation, server validation, moderation, and curated fallback.
 - [ ] Add automated unit, integration, and browser coverage for transitions, duplicates, late votes, refresh/reconnect, authorization, and safety.
 
@@ -70,7 +70,7 @@ EventSub ingestion and event-ID deduplication were completed in slice 4 below. L
 
 Automated coverage uses fixtures; real OAuth consent and chat delivery still require the creator's app credentials and two real viewer accounts. See docs/LIVE_CHAT_TEST.md.
 
-Next: scoped live overlay tokens and browser live delivery. Browser preview works with creator cookies; a separate live OBS browser source is not supported yet.
+Scoped live overlay access is implemented in the OBS slice below. Browser WebSocket delivery remains next.
 
 ## Later roadmap
 
@@ -90,3 +90,15 @@ Do not start P1/P2 until the Twitch-to-overlay P0 flow is stable.
 - [x] Verify authorization, invalid submissions, approval, selection and restart persistence in memory, PostgreSQL and HTTP checks.
 
 This adds streamer-authored challenges; AI moderation and viewer submissions remain pending. The creator reported successful real Twitch chat voting and an OBS stream test during this session.
+
+
+## OBS overlay slice
+
+- [x] Add creator-issued 12-hour read-only capabilities, stored only as hashes with expiry.
+- [x] Bind access to the current session; invalidate on rotation, revocation, session end/replacement and disconnect.
+- [x] Project only currently approved broadcast text, vote totals and server timers.
+- [x] Add OBS setup, copy/rotate/revoke controls and transparent browser-source rendering.
+- [x] Clear stale content on network/auth errors and show paused state.
+- [x] Test owner enforcement, expiry, restart persistence, approval revocation, HTTP read-only boundaries and rendering.
+
+Transport still polls once per second; WebSocket delivery remains pending.
