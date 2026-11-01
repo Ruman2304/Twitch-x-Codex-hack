@@ -1,8 +1,24 @@
-const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmt=s=>`${String(Math.floor(Math.max(0,s)/60)).padStart(2,"0")}:${String(Math.max(0,s)%60).padStart(2,"0")}`;
-async function update(){try{const r=await fetch("/api/v1/state",{cache:"no-store"});const d=(await r.json()).data;document.querySelector("#overlay-status").textContent=d.session.status==="live"?"SESSION LIVE":"SESSION PAUSED";const round=d.round,attempt=d.attempt;let opts=[],title="Waiting for the next<br>adventure…",sub="The streamer is setting up a challenge round.",kicker="COMMUNITY CHALLENGE",timer="DEMO · DARELOOP";
-if(round?.state==="voting"){opts=round.options.map(o=>({number:o.number,title:o.title,votes:d.tallies[o.number]||0}));title="Chat picks the next challenge";sub="Cast your vote in chat. The streamer makes the final call.";timer=`VOTE · ${fmt(round.closes_at-Math.floor(Date.now()/1000))}`}
-if(round?.state==="resolved"){title=esc(round.winner.title);sub="The community's choice is ready for the streamer.";kicker="COMMUNITY PICK";opts=round.options.map(o=>({number:o.number,title:o.title,votes:round.tallies?.[o.number]||0,winner:o.number===round.winner.number}));}
-if(attempt){title=esc(attempt.title);kicker=attempt.status==="running"?"CHALLENGE IN PROGRESS":`CHALLENGE ${attempt.status.toUpperCase()}`;sub=attempt.status==="running"?"Streamer approved · You're on the clock":"The streamer controls what happens next.";timer=attempt.status==="running"?`TIME LEFT · ${fmt(attempt.remaining_sec)}`:"DARELOOP LIVE"}
-document.querySelector("#overlay-kicker").textContent=kicker;document.querySelector("#overlay-title").innerHTML=title;document.querySelector("#overlay-subtitle").textContent=sub;document.querySelector("#overlay-timer").textContent=timer;document.querySelector("#overlay-options").innerHTML=opts.map(o=>`<div class="overlay-option ${o.winner?'winner':''}"><strong>${o.number}</strong><span>${esc(o.title)}</span>${o.votes!==undefined?`<span style="margin-left:auto;color:#b9a7fa">${o.votes}</span>`:""}</div>`).join("");}catch{document.querySelector("#overlay-status").textContent="RECONNECTING"}}
+const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=value=>{const seconds=Math.max(0,Math.floor(value));return `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;};
+const attemptRounds=new Map();
+async function update(){try{
+  const response=await fetch('/api/v1/state',{cache:'no-store'});if(!response.ok)throw new Error('offline');
+  const data=(await response.json()).data;
+  document.querySelector('#overlay-status').textContent=data.session.status==='live'?'DEMO SESSION':'DEMO · MARKED PAUSED';
+  const {round,attempt}=data;
+  if(attempt&&!attemptRounds.has(attempt.id))attemptRounds.set(attempt.id,round?.id);
+  const currentAttempt=attempt&&attemptRounds.get(attempt.id)===round?.id?attempt:null;
+  let options=[],title='The next move<br>starts with you.',subtitle='The streamer is reviewing the next challenge round.',kicker='DARELOOP / LOCAL DEMO',timer='WAITING';
+  if(round?.state==='voting'){
+    options=round.options.map(option=>({...option,votes:data.tallies[option.number]||0}));title='Chat picks the next move.';subtitle='One vote per viewer. The streamer makes the final call.';timer=`VOTING · ${fmt(round.closes_at-Math.floor(Date.now()/1000))}`;
+  }else if(currentAttempt){title=esc(currentAttempt.title);kicker=`DEMO / CHALLENGE ${currentAttempt.status.toUpperCase()}`;subtitle=currentAttempt.status==='running'?'Streamer approved. Complete or skip at any time.':'The streamer decides what happens next.';timer=currentAttempt.status==='running'?`TIME LEFT · ${fmt(currentAttempt.remaining_sec)}`:currentAttempt.status.toUpperCase();
+  }else if(round?.state==='resolved'){
+    title=esc(round.winner.title);subtitle='Chat has made its pick. Waiting for the streamer to start.';kicker='DEMO / COMMUNITY PICK';timer='WINNER SELECTED';options=round.options.map(option=>({...option,votes:round.tallies?.[option.number]||0,winner:option.number===round.winner.number}));
+  }
+  document.querySelector('#overlay-kicker').textContent=kicker;
+  document.querySelector('#overlay-title').innerHTML=title;
+  document.querySelector('#overlay-subtitle').textContent=subtitle;
+  document.querySelector('#overlay-timer').textContent=timer;
+  document.querySelector('#overlay-options').innerHTML=options.map(option=>`<div class="overlay-option ${option.winner?'winner':''}"><strong>${option.winner?'✓':option.number}</strong><span>${esc(option.title)}</span><span style="margin-left:auto;color:var(--lime)">${option.votes}</span></div>`).join('');
+}catch{document.querySelector('#overlay-status').textContent='DEMO · CONNECTION LOST · RETRYING';}}
 update();setInterval(update,1000);

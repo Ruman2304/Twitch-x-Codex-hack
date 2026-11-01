@@ -183,3 +183,11 @@ Twitch-x-Codex-hack/
 ## 📄 License
 
 Distributed under the MIT License. Built with ❤️ for the Twitch x Codex Hackathon.
+
+## Frontend design preview
+
+The `bilal/frontend` branch refreshes the Command Center with a charcoal and lime broadcast workspace, an authored campus illustration, a central arena, voting cards, challenge review, a simulated chat panel, and a matching transparent overlay. It uses the existing local demo API; real Twitch chat and AI generation remain pending.
+
+Start the server with `python3 apps/api/app/main.py`, then open `http://127.0.0.1:8000`. Approve at least two challenges, open voting, send votes as the demo viewers, close voting, and start the winner. Complete or skip to reveal the next-round control. The connection panel copies the OBS URL and resets the demo. Session pause is labeled with its current limitation: existing backend timers continue.
+
+Frontend checks: `node --check apps/web/app.js` and `node --check apps/web/overlay.js`. Browser review is still required at 375px, 768px, 1280px, 1440px, and for the 1920×1080 OBS source; keyboard navigation, text contrast, and network recovery should be reviewed there as well.
