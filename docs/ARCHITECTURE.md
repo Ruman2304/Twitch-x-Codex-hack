@@ -2,9 +2,15 @@
 
 ## Current prototype
 
-The first slice is a dependency-free Python standard-library HTTP server serving a static responsive web interface. `apps/api/app/main.py` is a temporary modular-monolith seam: it owns the session, challenge approvals, round transition, demo vote upsert, timer, scores, activity and JSON state snapshot. The browser polls the read-only snapshot and posts streamer actions. `/overlay/demo` uses a separate read-only view. State currently lives in process memory and therefore survives page refreshes but not a server restart.
+The application currently uses a Python standard-library HTTP server and static frontend. `main.py` handles HTTP, cookies, OAuth redirects, and response envelopes. External Twitch HTTP calls live in `integrations/twitch.py`. Domain behavior lives in `services/sessions.py`, `services/voting.py`, `services/scoring.py`, and `services/safety.py`.
 
-Demo-only simulated identities and votes are isolated to `/api/v1/demo/vote`; that route must be disabled when connecting Twitch. Production should replace process memory with PostgreSQL transactions and add a Redis pub/sub layer for ephemeral delivery/rate limits. Keep provider EventSub message IDs in a unique inbox table, and keep vote uniqueness at `(round_id, twitch_user_id)`. The server clock decides whether a round is open. The current deterministic tie rule selects the earliest option number.
+`SessionService` serializes state changes under a reentrant lock and returns detached snapshots. Server deadlines decide vote closure and attempt expiration. Pausing stores remaining time and removes active deadlines; resuming establishes new deadlines. Completed/skipped attempts cannot restart, and opening another round clears the old attempt. A challenge must be approved both at vote creation and attempt start. Voting locks changes to included approvals. Participation uses one ledger key per round and viewer.
+
+State is still in process memory: browser refresh preserves it, server restart does not. There is currently one workspace per process. With `DEMO_MODE=false`, an authenticated Twitch user creates the workspace explicitly, and other users cannot read or mutate it. Demo mode deliberately permits local unauthenticated simulation; it is not a production authorization mode. Reads and actions enforce the same ownership boundary. Overlay token access and multiple session IDs are pending; the unauthenticated `/overlay/demo` state feed is available only in demo mode.
+
+OAuth state is random, one-time, expiring, and bound to an HTTP-only browser cookie. Start redirects to the configured callback host before setting that cookie, avoiding localhost/127.0.0.1 cookie mismatch. Tokens remain server-only and in memory; expired credentials require reconnect until refresh is implemented. Callback queries are omitted from HTTP logs. Browser mutation requests reject foreign origins and require JSON bodies.
+
+Next replace the in-memory boundary with PostgreSQL transactions and migrations. Keep provider EventSub IDs unique in an inbox, votes unique at `(round_id, twitch_user_id)`, and score idempotency keys unique. Add encrypted durable OAuth storage/refresh, EventSub ingestion, and versioned WebSocket delivery with reconnect snapshots. Redis is intended for ephemeral delivery and rate limits, not authoritative state.
 
 ## Target shape from product spec
 

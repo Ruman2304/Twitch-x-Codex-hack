@@ -14,7 +14,13 @@ function render(data) {
   ui.data=data;
   const {session,challenges,round,tallies,attempt,scores,activity}=data;
   const paused=session.status==='paused';
-  $('#sidebar-status').textContent=paused?'SESSION PAUSED':'DEMO SESSION';
+  const ended=session.status==='ended';
+  if(!ended)$('#create-session').classList.add('hidden');
+  $('#end-session').disabled=ended;
+  $('#session-pause').disabled=ended;
+  $('.session-identity strong').textContent=session.title;
+  $('.demo-badge').textContent=data.demo_mode?'LOCAL DEMO':'TWITCH WORKSPACE';
+  $('#sidebar-status').textContent=ended?'SESSION ENDED':paused?'SESSION PAUSED':data.demo_mode?'DEMO SESSION':'LIVE SESSION';
   $('#session-pause').textContent=paused?'▶':'Ⅱ';
   $('#session-pause').setAttribute('aria-label',paused?'Resume demo session':'Pause demo session');
   const approved=challenges.filter(c=>c.approval_status==='approved');
@@ -38,19 +44,21 @@ function render(data) {
   if(attempt&&!ui.attemptRounds.has(attempt.id)) {
     try { ui.attemptRounds.set(attempt.id,sessionStorage.getItem(`attempt-${attempt.id}`)||round?.id); } catch { ui.attemptRounds.set(attempt.id,round?.id); }
   }
-  const currentAttempt=attempt&&ui.attemptRounds.get(attempt.id)===round?.id ? attempt : null;
-  const running=currentAttempt?.status==='running';
+  const currentAttempt=attempt&&(attempt.round_id||ui.attemptRounds.get(attempt.id))===round?.id ? attempt : null;
+  const running=['running','paused'].includes(currentAttempt?.status);
   const finished=currentAttempt&&['completed','skipped','expired'].includes(currentAttempt.status);
   let title='LET CHAT<br>CHOOSE THE<br><span>NEXT MOVE.</span>',description='A little curiosity. A collective decision. Approve your challenges and let the adventure unfold.',label='READY TO LAUNCH',timer='—:——',timerLabel='WAITING FOR YOUR GO';
-  const controls=['primary-action','close-vote','start-attempt','complete-attempt','skip-attempt'];
+  const controls=['primary-action','close-vote','start-attempt','complete-attempt','skip-attempt','skip-round'];
   controls.forEach(id=>$('#'+id).classList.add('hidden'));
   const show=id=>$('#'+id).classList.remove('hidden');
-  if(voting) {title='THE NEXT MOVE<br>IS <span>UP TO CHAT.</span>';description='One current vote per viewer. They can change their pick before the clock runs out.';label='AUDIENCE VOTE IN PROGRESS';timer=fmt(round.closes_at-Math.floor(Date.now()/1000));timerLabel='VOTING CLOSES IN';show('close-vote');}
+  if(voting) {title='THE NEXT MOVE<br>IS <span>UP TO CHAT.</span>';description='One current vote per viewer. They can change their pick before the clock runs out.';label='AUDIENCE VOTE IN PROGRESS';timer=fmt(round.remaining_sec ?? (round.closes_at-Math.floor(Date.now()/1000)));timerLabel='VOTING CLOSES IN';show('close-vote');}
   else if(running) {title=esc(currentAttempt.title);description='Your challenge, your pace. Complete it or skip whenever you choose.';label='CHALLENGE IN PROGRESS';timer=fmt(currentAttempt.remaining_sec);timerLabel='TIME LEFT';show('complete-attempt');show('skip-attempt');}
   else if(finished) {title=currentAttempt.status==='completed'?'ONE FOR<br><span>THE FIELD NOTES.</span>':currentAttempt.status==='skipped'?'NEW DIRECTION.<br><span>SAME ADVENTURE.</span>':'TIME’S UP.<br><span>YOUR CALL.</span>';description=currentAttempt.status==='expired'?'The timer has ended. Mark the outcome, or skip and move on.':`Challenge ${currentAttempt.status}. Ready to let chat choose the next one?`;label=`CHALLENGE ${currentAttempt.status.toUpperCase()}`;timerLabel=currentAttempt.status.toUpperCase();if(currentAttempt.status==='expired'){show('complete-attempt');show('skip-attempt');}else show('primary-action');}
   else if(resolved) {title=esc(round.winner.title);description='Chat has made its pick. You decide when the challenge begins.';label='THE COMMUNITY HAS SPOKEN';timer='✓';timerLabel='WINNER SELECTED';show('start-attempt');}
   else show('primary-action');
-  if(paused){label='SESSION MARKED PAUSED';description='Demo limitation: this pause changes session status; existing server timers continue.';$('#primary-action').classList.add('hidden');$('#start-attempt').classList.add('hidden');}
+  if(paused){label='SESSION MARKED PAUSED';description='Timers are frozen and voting is paused. Resume when you’re ready, or skip at any time.';$('#primary-action').classList.add('hidden');$('#start-attempt').classList.add('hidden');}
+  if((voting||resolved)&&!currentAttempt)show('skip-round');
+  if(ended){controls.forEach(id=>$('#'+id).classList.add('hidden'));title='THAT’S A WRAP.<br><span>UNTIL NEXT TIME.</span>';description='This session has ended. Reset the demo or create a new live session from setup.';label='SESSION ENDED';timer='—:——';timerLabel='ENDED';}
   $('#primary-action').disabled=approved.length<2||ui.busy||ui.offline;
   $('#primary-action').innerHTML=`${finished?'Open next round':'Open voting round'} <span>↗</span>`;
   $('#primary-action').title=approved.length<2?'Approve at least two challenges first':'';
@@ -68,12 +76,12 @@ function render(data) {
   if($('#leaderboard-list').dataset.key!==scoresKey){$('#leaderboard-list').dataset.key=scoresKey;$('#leaderboard-list').innerHTML=scores.length?scores.map((score,index)=>`<div class="leader-row"><span class="rank">${String(index+1).padStart(2,'0')}</span><span class="person-avatar">${esc(score.name.slice(0,1))}</span><span class="person-name">${esc(score.name)}</span><span class="person-points">${score.points} pts</span></div>`).join(''):'<div class="empty-state">Your first voters set the pace.</div>';}
   $('#activity-list').innerHTML=activity.length?activity.slice(0,4).map(item=>`<div class="activity-row"><i class="activity-dot"></i><div>${esc(item.message)}<time>${timeAgo(item.at)}</time></div></div>`).join(''):'<div class="empty-state">Your session story starts here.</div>';
 }
-async function refresh(){try{const response=await fetch('/api/v1/state',{cache:'no-store'});if(!response.ok)throw new Error('state unavailable');const result=await response.json();ui.offline=false;render(result.data);$('#sync-status').textContent='● CONNECTED TO LOCAL DEMO';}catch{ui.offline=true;$('#sync-status').textContent='○ CONNECTION LOST · RETRYING';$('#send-vote').disabled=true;$('#primary-action').disabled=true;}}
+async function refresh(){try{const response=await fetch('/api/v1/state',{cache:'no-store'});if(!response.ok){if(response.status===401||response.status===403){$('#sync-status').textContent=response.status===401?'SIGN IN TO OPEN YOUR WORKSPACE':'CREATE YOUR SESSION OR SIGN IN AS ITS OWNER';['primary-action','close-vote','start-attempt','complete-attempt','skip-attempt','skip-round'].forEach(id=>$('#'+id).classList.add('hidden'));$('#send-vote').disabled=true;$('#session-pause').disabled=true;$('#end-session').disabled=true;return;}throw new Error('state unavailable');}const result=await response.json();ui.offline=false;render(result.data);$('#sync-status').textContent=result.data.demo_mode?'● CONNECTED TO LOCAL DEMO':'● CONNECTED · TWITCH CHAT NOT YET ENABLED';}catch{ui.offline=true;$('#sync-status').textContent='○ CONNECTION LOST · RETRYING';$('#send-vote').disabled=true;$('#primary-action').disabled=true;}}
 async function action(path,body={},message='Updated.') {
   if(ui.busy)return;
   ui.busy=true;
   try{const data=await request(path,body);if(path==='/api/v1/attempt'&&data?.attempt){ui.attemptRounds.set(data.attempt.id,data.round.id);try{sessionStorage.setItem(`attempt-${data.attempt.id}`,data.round.id);}catch{}}
-    ui.busy=false;if(data)render(data);toast(message);
+    ui.busy=false;if(data)render(data);if(path==='/api/v1/session/end')await loadTwitchAccount();toast(message);
   }catch(error){toast(error.message);}finally{ui.busy=false;}
 }
 $('#challenge-list').addEventListener('click',event=>{const button=event.target.closest('[data-approval]');if(!button)return;if(ui.data?.round?.state==='voting'){toast('Close the current vote before changing its approved pool.');return;}action(`/api/v1/challenges/${button.dataset.id}/approval`,{approval:button.dataset.approval},button.dataset.approval==='approved'?'Challenge approved. Your call, always.':'Challenge removed from the approved pool.');});
@@ -82,9 +90,12 @@ $('#close-vote').onclick=()=>action('/api/v1/rounds/close',{},'Votes locked. The
 $('#start-attempt').onclick=()=>action('/api/v1/attempt',{},'The clock is running. You can always skip.');
 $('#complete-attempt').onclick=()=>action('/api/v1/attempt/action',{action:'complete'},'Another one for the field notes.');
 $('#skip-attempt').onclick=()=>action('/api/v1/attempt/action',{action:'skip'},'Skipped. There’s always another direction.');
-$('#session-pause').onclick=()=>action('/api/v1/session/pause',{},'Demo status updated. Existing server timers continue.');
+$('#session-pause').onclick=()=>action('/api/v1/session/pause',{},'Session updated. Timers freeze while paused.');
 $('#send-vote').onclick=async()=>{if(ui.busy||$('#send-vote').disabled)return;const match=$('#vote-command').value.trim().match(/^!vote\s+([1-3])$/i);if(!match){$('#chat-result').textContent='Try !vote 1, !vote 2, or !vote 3.';return;}ui.busy=true;$('#send-vote').disabled=true;try{const data=await request('/api/v1/demo/vote',{viewer:$('#viewer-select').value,option:Number(match[1])});ui.busy=false;render(data);$('#chat-result').textContent=`${$('#viewer-select').selectedOptions[0].text}: vote counted for option ${match[1]}.`;}catch(error){$('#chat-result').textContent=error.message;}finally{ui.busy=false;if(ui.data)render(ui.data);}};
 $('#vote-command').addEventListener('keydown',event=>{if(event.key==='Enter')$('#send-vote').click();});
+$('#skip-round').onclick=()=>action('/api/v1/rounds/skip',{},'Round skipped. Nothing starts without your approval.');
+$('#create-session').onclick=()=>action('/api/v1/sessions',{},'Your session is ready.');
+$('#end-session').onclick=()=>{if(confirm('End this session and stop its active round or challenge?'))action('/api/v1/session/end',{},'Session ended.');};
 $('#overlay-link').onclick=()=>window.open('/overlay/demo','dareloop-overlay','noopener');
 $('#copy-overlay').onclick=async()=>{const url=new URL('/overlay/demo',location.origin).href;try{await navigator.clipboard.writeText(url);toast('Overlay URL copied. Add it as an OBS browser source.');}catch{toast(`Overlay: ${url}`);}};
 $('#add-challenge').onclick=()=>action('/api/v1/challenges/curated',{},'A curated challenge is ready for your review.');
@@ -95,7 +106,7 @@ menu.onclick=()=>{const open=$('.sidebar').classList.toggle('mobile-open');menu.
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
 document.addEventListener('click',event=>{if(!event.target.closest('.sidebar')&&!event.target.closest('.mobile-menu'))closeMenu();});
 document.querySelectorAll('.nav-item[href]').forEach(link=>link.addEventListener('click',()=>{document.querySelectorAll('.nav-item').forEach(item=>item.classList.remove('active'));link.classList.add('active');closeMenu();}));
-async function loadTwitchAccount(){try{const response=await fetch('/api/v1/me',{cache:'no-store'});if(!response.ok)throw new Error('account unavailable');const data=(await response.json()).data;$('#twitch-status').textContent=data.connected?`SIGNED IN · ${data.user.display_name.toUpperCase()}`:'TWITCH NOT CONNECTED';$('#creator-name').textContent=data.connected?data.user.display_name:'Demo creator';$('#twitch-connect').classList.toggle('hidden',data.connected);$('#twitch-disconnect').classList.toggle('hidden',!data.connected);}catch{$('#twitch-status').textContent='ACCOUNT STATUS UNAVAILABLE';}}
-$('#twitch-disconnect').onclick=async()=>{try{await request('/api/v1/auth/twitch/disconnect');await loadTwitchAccount();toast('Twitch account disconnected.');}catch(error){toast(error.message);}};
+async function loadTwitchAccount(){try{const response=await fetch('/api/v1/me',{cache:'no-store'});if(!response.ok)throw new Error('account unavailable');const data=(await response.json()).data;$('#twitch-status').textContent=data.connected?`SIGNED IN · ${data.user.display_name.toUpperCase()}`:'TWITCH NOT CONNECTED';$('#creator-name').textContent=data.connected?data.user.display_name:'Demo creator';$('#create-session').classList.toggle('hidden',!data.can_create_session||data.demo_mode);$('.demo-badge').textContent=data.demo_mode?'LOCAL DEMO':'TWITCH WORKSPACE';$('#reset-demo').classList.toggle('hidden',!data.demo_mode);$('#twitch-connect').classList.toggle('hidden',data.connected);$('#twitch-disconnect').classList.toggle('hidden',!data.connected);}catch{$('#twitch-status').textContent='ACCOUNT STATUS UNAVAILABLE';}}
+$('#twitch-disconnect').onclick=async()=>{try{await request('/api/v1/auth/twitch/disconnect');await loadTwitchAccount();await refresh();toast('Twitch account disconnected.');}catch(error){toast(error.message);}};
 refresh();loadTwitchAccount();setInterval(()=>{if(!document.hidden&&!ui.busy)refresh();},1000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});

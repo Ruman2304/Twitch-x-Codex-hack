@@ -188,6 +188,15 @@ Distributed under the MIT License. Built with ❤️ for the Twitch x Codex Hack
 
 The `bilal/frontend` branch refreshes the Command Center with a charcoal and lime broadcast workspace, an authored campus illustration, a central arena, voting cards, challenge review, a simulated chat panel, and a matching transparent overlay. It uses the existing local demo API; real Twitch chat and AI generation remain pending.
 
-Start the server with `python3 apps/api/app/main.py`, then open `http://127.0.0.1:8000`. Approve at least two challenges, open voting, send votes as the demo viewers, close voting, and start the winner. Complete or skip to reveal the next-round control. The connection panel copies the OBS URL and resets the demo. Session pause is labeled with its current limitation: existing backend timers continue.
+Start the server with `python3 apps/api/app/main.py`, then open `http://127.0.0.1:8000`. Approve at least two challenges, open voting, send votes as the demo viewers, close voting, and start the winner. Complete or skip to reveal the next-round control. The connection panel copies the OBS URL and resets the demo. Session pause now freezes round and challenge timers on the server. Resume restores the remaining time. You can skip a round before starting, complete or skip a paused challenge, and end a session.
 
 Frontend checks: `node --check apps/web/app.js` and `node --check apps/web/overlay.js`. Browser review is still required at 375px, 768px, 1280px, 1440px, and for the 1920×1080 OBS source; keyboard navigation, text contrast, and network recovery should be reviewed there as well.
+
+
+## Backend lifecycle slice
+
+Run `python3 -m unittest discover -s tests -v` for the backend regression suite. It covers deadline boundaries, repeated/concurrent votes, participation idempotency, approval revocation, repeated attempts, pause/resume, end/skip controls, request validation, creator ownership, and browser-bound OAuth state. Tests run offline and use no real credentials.
+
+With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. There is one in-memory workspace per server process in this slice; PostgreSQL, durable account/token refresh, multiple sessions, EventSub chat, scoped overlay tokens, and WebSockets are not implemented yet. The unauthenticated OBS demo is intended for demo mode only.
+
+New lifecycle endpoints: `POST /api/v1/sessions`, `POST /api/v1/session/resume`, `POST /api/v1/session/end`, and `POST /api/v1/rounds/skip`. The existing pause endpoint toggles pause/resume for frontend compatibility. Complete and skip remain available while paused; new rounds and votes require a live session.

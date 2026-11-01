@@ -48,4 +48,6 @@ The app registration's redirect URL and `TWITCH_REDIRECT_URI` must match exactly
 
 ## Current code status
 
-Implemented: demo command center, challenge approval, simulated votes, server-side tally/timer, scoreboard, read-only overlay, OAuth start/callback with one-time state, token exchange/validation, and channel profile lookup. OAuth tokens are held in process memory only and are lost on restart. Not implemented: encrypted persistent token storage, token refresh, EventSub chat subscription, PostgreSQL, Redis or production WebSockets. See `TASKS.md`.
+Implemented: demo command center, challenge approval, simulated votes, server-side tally/timer, scoreboard, read-only overlay, OAuth start/callback with one-time browser-bound state, token exchange/validation, and channel profile lookup. OAuth tokens are held in process memory only and are lost on restart. Not implemented: encrypted persistent token storage, token refresh, EventSub chat subscription, PostgreSQL, Redis or production WebSockets. See `TASKS.md`.
+
+Use the configured callback host consistently during sign-in. The OAuth start route redirects to that host before issuing the state cookie. With demo mode disabled, create a live session after signing in; the workspace API requires the owning creator. This remains an in-memory prototype until persistent accounts and token refresh are implemented.
