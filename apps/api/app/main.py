@@ -4,9 +4,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
-import time
 import uuid
-import secrets
 import html
 from pathlib import Path
 from http.cookies import SimpleCookie
@@ -16,7 +14,9 @@ if __package__:
     from .persistence.repository import MemoryRepository, PostgresRepository
     from .services.sessions import SessionService
     from .services.common import DomainError
-    from .integrations.twitch import exchange_profile
+    from .integrations.twitch import TwitchClient
+    from .persistence.accounts import MemoryAccountStore, PostgresAccountStore
+    from .services.accounts import AccountService
 else:
     # Use the same package imports for direct-script and module startup.
     import sys
@@ -25,8 +25,9 @@ else:
     from apps.api.app.persistence.repository import MemoryRepository, PostgresRepository
     from apps.api.app.services.sessions import SessionService
     from apps.api.app.services.common import DomainError
-    from apps.api.app.integrations.twitch import exchange_profile
-from urllib.error import HTTPError, URLError
+    from apps.api.app.integrations.twitch import TwitchClient
+    from apps.api.app.persistence.accounts import MemoryAccountStore, PostgresAccountStore
+    from apps.api.app.services.accounts import AccountService
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urlencode
 
@@ -37,8 +38,7 @@ TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID", "").strip()
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET", "").strip()
 TWITCH_REDIRECT_URI = os.getenv("TWITCH_REDIRECT_URI", "http://localhost:8000/api/v1/auth/twitch/callback").strip()
 DEMO = os.getenv("DEMO_MODE", "true").lower() == "true"
-OAUTH_STATES = {}
-WEB_SESSIONS = {}
+
 
 def build_game():
     dsn = os.getenv("DATABASE_URL", "").strip()
@@ -54,6 +54,23 @@ def build_game():
 
 # Construct storage only at server startup, never as an import side effect.
 GAME = None
+AUTH = None
+
+def build_auth(game):
+    keys = os.getenv("TOKEN_ENCRYPTION_KEYS", "").strip()
+    if not keys or not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
+        if not DEMO:
+            raise RuntimeError("Live mode requires Twitch credentials and TOKEN_ENCRYPTION_KEYS.")
+        return None
+    try:
+        if __package__:
+            from .security.tokens import TokenCipher
+        else:
+            from apps.api.app.security.tokens import TokenCipher
+        store = PostgresAccountStore(game.repository) if game.repository.storage == "postgresql" else MemoryAccountStore()
+        return AccountService(store, TokenCipher(keys), TwitchClient(TWITCH_CLIENT_ID,TWITCH_CLIENT_SECRET,TWITCH_REDIRECT_URI))
+    except ImportError:
+        raise RuntimeError("Install apps/api/requirements.txt before enabling Twitch authentication.") from None
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "DareLoopDemo/0.1"
@@ -82,14 +99,10 @@ class Handler(BaseHTTPRequestHandler):
             return ""
         return cookies[name].value if name in cookies else ""
     def session_user(self):
-        token = self.cookie_value("dareloop_session")
-        entry = WEB_SESSIONS.get(token)
-        if entry and entry["expires_at"] > time.time():
-            return entry["user"]
-        if token:
-            WEB_SESSIONS.pop(token, None)
-        return None
+        return AUTH.authenticate(self.cookie_value("dareloop_session")) if AUTH else None
     def actor_id(self):
+        if GAME.demo:
+            return None  # Local simulation must work during a Twitch outage.
         user = self.session_user()
         return user["id"] if user else None
     def read_json(self):
@@ -108,15 +121,19 @@ class Handler(BaseHTTPRequestHandler):
         expected_scheme = "https" if TWITCH_REDIRECT_URI.startswith("https:") else "http"
         return origin == expected_scheme + "://" + self.headers.get("Host", "")
     def do_GET(self):
+        try:
+            return self._get()
+        except DomainError as error:
+            return self.error_json(error)
+    def _get(self):
         path = urlparse(self.path).path
         if path == "/api/v1/auth/twitch/start":
-            if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
-                return self.send_page(503, "Twitch credentials missing", "Add TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET to the project .env file, then restart the server.")
+            if AUTH is None:
+                return self.send_page(503, "Twitch configuration needed", "Configure Twitch credentials and TOKEN_ENCRYPTION_KEYS, then restart. The local demo works without sign-in.")
             callback_origin = urlparse(TWITCH_REDIRECT_URI)
             if self.headers.get("Host", "") != callback_origin.netloc:
                 return self.redirect(callback_origin.scheme + "://" + callback_origin.netloc + "/api/v1/auth/twitch/start")
-            state = secrets.token_urlsafe(32)
-            OAUTH_STATES[state] = time.time() + 600
+            state = AUTH.begin()
             query = urlencode({"client_id": TWITCH_CLIENT_ID, "redirect_uri": TWITCH_REDIRECT_URI,
                                "response_type": "code", "scope": "user:read:chat", "state": state})
             secure = "; Secure" if TWITCH_REDIRECT_URI.startswith("https:") else ""
@@ -125,32 +142,22 @@ class Handler(BaseHTTPRequestHandler):
             params = parse_qs(urlparse(self.path).query)
             if params.get("error"):
                 return self.send_page(400, "Twitch connection cancelled", "Twitch did not authorize DareLoop. You can try connecting again.")
-            state = params.get("state", [""])[0]
-            bound_state = self.cookie_value("dareloop_oauth_state")
-            if not bound_state or not secrets.compare_digest(state.encode(), bound_state.encode()):
-                return self.send_page(400, "Sign-in expired", "Sign-in must finish in the browser that started it.")
-            expires = OAUTH_STATES.pop(state, None)
-            if not expires or expires < time.time():
-                return self.send_page(400, "Sign-in expired", "The one-time sign-in state is missing or expired. Return to DareLoop and try again.")
-            code = params.get("code", [""])[0]
-            if not code or not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
-                return self.send_page(400, "Twitch sign-in failed", "The callback was missing an authorization code or server credentials.")
+            if AUTH is None:
+                return self.send_page(503, "Twitch unavailable", "Twitch authentication is not configured on this server.")
             try:
-                user, token_data = exchange_profile(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_REDIRECT_URI, code)
-                access_token = token_data["access_token"]
-                session_id = secrets.token_urlsafe(32)
-                WEB_SESSIONS[session_id] = {"user": user, "access_token": access_token, "refresh_token": token_data.get("refresh_token"), "expires_at": time.time() + int(token_data.get("expires_in", 0))}
+                session_id = AUTH.complete(params.get("state", [""])[0], self.cookie_value("dareloop_oauth_state"),
+                                           params.get("code", [""])[0], self.cookie_value("dareloop_session"))
                 secure = "; Secure" if TWITCH_REDIRECT_URI.startswith("https:") else ""
                 return self.redirect("/", f"dareloop_session={session_id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400{secure}")
-            except (HTTPError, URLError, TimeoutError, KeyError, IndexError, ValueError):
-                return self.send_page(502, "Twitch connection failed", "The server could not finish OAuth with Twitch. Check the Client ID, secret, and exact redirect URL, then try again.")
+            except DomainError as error:
+                return self.send_page(error.status, "Twitch sign-in could not finish", "Return to DareLoop and reconnect. If this persists, check the server configuration and Twitch connection.")
         if path == "/api/v1/me":
             user = self.session_user()
             try:
                 can_create = GAME.capabilities(user["id"] if user else None)
             except DomainError as error:
                 return self.error_json(error)
-            return self.send_json(200, {"data": {"connected": bool(user), "user": user, "demo_mode": DEMO, "can_create_session": can_create}, "error": None})
+            return self.send_json(200, {"data": {"connected": bool(user), "user": user, "demo_mode": DEMO, "can_create_session": can_create, "auth_ready": AUTH is not None, "auth_storage": AUTH.store.storage if AUTH else "disabled", "reconnect_required": bool(self.cookie_value("dareloop_session")) and not user}, "error": None})
         if path == "/api/v1/state":
             try:
                 return self.send_json(200, {"data": GAME.snapshot(self.actor_id()), "error": None, "request_id": str(uuid.uuid4())})
@@ -168,10 +175,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self.origin_allowed():
                 raise DomainError("origin_not_allowed", 403)
             if path == "/api/v1/auth/twitch/disconnect":
-                token = self.cookie_value("dareloop_session")
-                if token:
-                    WEB_SESSIONS.pop(token, None)
-                return self._clear_cookie()
+                pending = AUTH.disconnect(self.cookie_value("dareloop_session")) if AUTH else False
+                return self._clear_cookie(pending)
             data = self.read_json()
             result = GAME.execute(path, data, self.actor_id())
             return self.send_json(200, {"data": result, "error": None, "request_id": str(uuid.uuid4())})
@@ -179,12 +184,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.error_json(error)
         except (ValueError, UnicodeDecodeError):
             return self.error_json(DomainError("invalid_json", 400))
-    def _clear_cookie(self):
-        raw=json.dumps({"data":{"connected":False},"error":None}).encode(); self.send_response(200); self.send_header("Content-Type","application/json")
-        self.send_header("Set-Cookie","dareloop_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"); self.send_header("Content-Length",str(len(raw))); self.end_headers(); self.wfile.write(raw); return True
+    def _clear_cookie(self, pending=False):
+        raw=json.dumps({"data":{"connected":False,"revocation_pending":pending},"error":None}).encode(); self.send_response(200); self.send_header("Content-Type","application/json")
+        self.send_header("Set-Cookie","dareloop_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0" + ("; Secure" if TWITCH_REDIRECT_URI.startswith("https:") else "")); self.send_header("Content-Length",str(len(raw))); self.end_headers(); self.wfile.write(raw); return True
 
 if __name__ == "__main__":
     GAME = build_game()
+    AUTH = build_auth(GAME)
+    account_stop = AUTH.start_worker() if AUTH else None
     host=os.getenv("HOST","127.0.0.1"); port=int(os.getenv("PORT","8000"))
     print(f"DareLoop Live demo at http://{host}:{port} (DEMO_MODE={str(DEMO).lower()})")
-    ThreadingHTTPServer((host,port),Handler).serve_forever()
+    try:
+        ThreadingHTTPServer((host,port),Handler).serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if account_stop:
+            account_stop.set()

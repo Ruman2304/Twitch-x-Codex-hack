@@ -4,7 +4,7 @@ import json
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from apps.api.app.services.sessions import SessionService
 from apps.api.app.services.common import DomainError
@@ -229,9 +229,13 @@ class RouteTests(unittest.TestCase):
         self.game_patch = patch.object(main, 'GAME', SessionService(demo=False))
         self.game_patch.start()
         self.addCleanup(self.game_patch.stop)
-        self.session_patch = patch.dict(main.WEB_SESSIONS, {'test-token':{'user':{'id':'creator'},'expires_at':time.time()+60}}, clear=True)
-        self.session_patch.start()
-        self.addCleanup(self.session_patch.stop)
+        self.sessions = {'test-token':{'user':{'id':'creator'},'expires_at':time.time()+60}}
+        self.auth = Mock()
+        self.auth.authenticate.side_effect = lambda token: self.sessions[token]['user'] if token in self.sessions and self.sessions[token]['expires_at'] > time.time() else None
+        self.auth.complete.return_value = 'new-browser-session'
+        self.auth_patch = patch.object(main,'AUTH',self.auth)
+        self.auth_patch.start()
+        self.addCleanup(self.auth_patch.stop)
 
     def post(self, path, raw=b'{}', headers=None):
         request = Probe(path, raw, headers)
@@ -266,26 +270,24 @@ class RouteTests(unittest.TestCase):
         request.do_GET()
         self.assertFalse(request.result[1]['data']['can_create_session'])
 
+    def test_local_demo_remains_available_during_twitch_outage(self):
+        with patch.object(main,'GAME',SessionService(demo=True)):
+            self.auth.authenticate.side_effect=DomainError('twitch_temporarily_unavailable',503)
+            request=Probe('/api/v1/state',headers={'Cookie':'dareloop_session=test-token'})
+            request.do_GET()
+            self.assertEqual(request.result[0],200)
+            self.auth.authenticate.assert_not_called()
+
     def test_expired_cookie_is_not_authenticated(self):
-        main.WEB_SESSIONS['test-token']['expires_at'] = 0
+        self.sessions['test-token']['expires_at'] = 0
         self.assertEqual(self.post('/api/v1/sessions', headers={'Cookie':'dareloop_session=test-token'})[0], 401)
 
-    def test_oauth_state_is_browser_bound_and_one_time(self):
-        with patch.object(main, 'TWITCH_CLIENT_ID','id'), patch.object(main, 'TWITCH_CLIENT_SECRET','secret'), patch.object(main, 'exchange_profile') as exchange:
-            state = 'a-valid-test-state'
-            main.OAUTH_STATES[state] = time.time()+60
-            callback = '/api/v1/auth/twitch/callback?state='+state+'&code=test-code'
-            request = Probe(callback)
-            request.do_GET()
-            self.assertEqual(request.result[0], 400)
-            exchange.assert_not_called()
-            exchange.return_value = ({'id':'creator'}, {'access_token':'test-access', 'expires_in':3600})
-            request = Probe(callback, headers={'Cookie':'dareloop_oauth_state='+state})
-            request.do_GET()
-            self.assertEqual(request.result[0], 302)
-            self.assertNotIn('test-access', str(request.result))
-            request.do_GET()
-            self.assertEqual(request.result[0], 400)
-            self.assertEqual(exchange.call_count, 1)
+    def test_oauth_callback_sets_only_an_opaque_http_only_cookie(self):
+        request = Probe('/api/v1/auth/twitch/callback?state=state&code=code', headers={'Cookie':'dareloop_oauth_state=state'})
+        request.do_GET()
+        self.assertEqual(request.result[0],302)
+        self.auth.complete.assert_called_once_with('state','state','code','')
+        self.assertIn('HttpOnly; SameSite=Lax',request.result[1]['cookie'])
+        self.assertNotIn('access_token',str(request.result))
 
 if __name__ == '__main__': unittest.main()

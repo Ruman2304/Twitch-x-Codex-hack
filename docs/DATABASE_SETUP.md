@@ -1,6 +1,6 @@
 # PostgreSQL setup
 
-The PostgreSQL adapter persists game state across restarts. Twitch tokens and browser login sessions are not stored by this slice. Use a dedicated development database; migrations create the DareLoop tables in its current schema.
+The PostgreSQL adapter persists game state across restarts. Migration 002 also stores Twitch user profiles, encrypted token connections, hashed browser sessions and OAuth states, and a durable encrypted revocation queue. Token use requires TOKEN_ENCRYPTION_KEYS; see TWITCH_SETUP.md. Use a dedicated development database; migrations create the DareLoop tables in its current schema.
 
 ## Install the driver
 
@@ -51,7 +51,7 @@ A transaction locks the configured workspace, reloads current state, applies one
 
 A restart preserves absolute deadlines. Overdue rounds resolve and expired attempts update on the next authorized request. Paused sessions preserve remaining seconds until resumed. Reset archives the previous demo session and creates a fresh one; it does not delete historical records or affect the separate live workspace. Activity records use session version order to avoid reordering events that happen in the same second.
 
-`DATABASE_WORKSPACE` selects a server workspace. Demo and live use separate keys internally. This remains one active workspace per server configuration, not yet a multi-creator routing API. Data retention/cleanup and persistent OAuth credentials are still pending.
+`DATABASE_WORKSPACE` selects a server workspace. Demo and live use separate keys internally. This remains one active workspace per server configuration, not yet a multi-creator routing API. Data retention/cleanup and multiple-session routing are still pending.
 
 ## Automated checks
 

@@ -176,7 +176,7 @@ Twitch-x-Codex-hack/
 
 - [x] **P0 Core**: Dependency-free local demo server with Challenge Forge, Live Arena, and OBS Overlay.
 - [x] **P0 Auth**: Twitch OAuth 2.0 authorization-code flow and channel validation.
-- [x] **P0 Game Persistence**: PostgreSQL storage and migrations with transactional votes and score constraints; enabled with `DATABASE_URL`. OAuth storage/refresh remains pending.
+- [x] **P0 Game Persistence**: PostgreSQL storage and migrations with transactional votes and score constraints; enabled with `DATABASE_URL`. Encrypted OAuth storage/refresh is available with TOKEN_ENCRYPTION_KEYS.
 - [ ] **P0 Realtime**: WebSocket real-time event streaming replacing HTTP polling.
 - [ ] **P0 Chat EventSub**: Live `channel.chat.message` listener via Twitch EventSub WebSocket.
 - [ ] **P1 Features**: Viewer challenge suggestions, safety moderation queue, team competitions.
@@ -200,13 +200,20 @@ Frontend checks: `node --check apps/web/app.js` and `node --check apps/web/overl
 
 Run `python3 -m unittest discover -s tests -v` for the backend regression suite. It covers deadline boundaries, repeated/concurrent votes, participation idempotency, approval revocation, repeated attempts, pause/resume, end/skip controls, request validation, creator ownership, and browser-bound OAuth state. Tests run offline and use no real credentials.
 
-With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, configure PostgreSQL first, then sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. The lifecycle slice began with one in-memory workspace. PostgreSQL game persistence is now available as described below. Durable account/token refresh, multiple session routes, EventSub chat, scoped overlay tokens, and WebSockets remain pending. The unauthenticated OBS demo is intended for demo mode only.
+With `DEMO_MODE=true`, local simulated controls remain available without sign-in. With `DEMO_MODE=false`, configure PostgreSQL first, then sign in with Twitch and use **Create live session** in setup. Reads and actions then require that creator's session cookie. The lifecycle slice began with one in-memory workspace. PostgreSQL game persistence is now available as described below. Encrypted durable accounts and token refresh are now available with TOKEN_ENCRYPTION_KEYS. Multiple session routes, EventSub chat, scoped overlay tokens, and WebSockets remain pending. The unauthenticated OBS demo is intended for demo mode only.
 
 New lifecycle endpoints: `POST /api/v1/sessions`, `POST /api/v1/session/resume`, `POST /api/v1/session/end`, and `POST /api/v1/rounds/skip`. The existing pause endpoint toggles pause/resume for frontend compatibility. Complete and skip remain available while paused; new rounds and votes require a live session.
 
 
 ## PostgreSQL persistence
 
-Follow [database setup](docs/DATABASE_SETUP.md) to install the optional driver, configure `DATABASE_URL`, and apply migrations. With PostgreSQL configured, sessions, challenges, approvals, rounds, votes, timers, scores, and activity recover across restarts. The server rejects unavailable storage rather than silently falling back to memory. Twitch login cookies and OAuth tokens are still in memory; persistent encrypted credentials are the next backend slice.
+Follow [database setup](docs/DATABASE_SETUP.md) to install the optional driver, configure `DATABASE_URL`, and apply migrations. With PostgreSQL configured, sessions, challenges, approvals, rounds, votes, timers, scores, and activity recover across restarts. The server rejects unavailable storage rather than silently falling back to memory. With TOKEN_ENCRYPTION_KEYS configured, Twitch credentials are encrypted at rest and opaque browser sessions also recover after restart. See docs/TWITCH_SETUP.md.
 
 Without `DATABASE_URL`, `DEMO_MODE=true` still runs using memory and does not preserve state across server restarts. Live mode now requires a database. PostgreSQL integration tests are opt-in through `TEST_DATABASE_URL`; the standard offline suite reports them as skipped when no test database is configured.
+
+
+## Durable Twitch sign-in
+
+See [Twitch setup](docs/TWITCH_SETUP.md) to register the app and configure `TOKEN_ENCRYPTION_KEYS`. PostgreSQL stores encrypted access/refresh tokens and hashed browser sessions. The backend validates at startup and hourly, serializes reactive refreshes, preserves rotated refresh tokens, and ends sessions if authorization is revoked. Disconnect invalidates local sessions immediately and retries provider revocation through an encrypted queue if Twitch is unavailable.
+
+The no-credentials demo remains available. Automated account tests use a fake provider; real Twitch consent and live chat ingestion have not yet been tested. Never commit your Twitch client secret, database password, or encryption key.

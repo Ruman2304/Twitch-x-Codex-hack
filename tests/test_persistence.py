@@ -58,7 +58,7 @@ class PostgresTests(unittest.TestCase):
         self.repository.migrate()
         self.repository.migrate()
         with self.repository.connect() as db:
-            self.assertEqual(db.execute('SELECT count(*) AS count FROM schema_migrations').fetchone()['count'], 1)
+            self.assertEqual(db.execute('SELECT count(*) AS count FROM schema_migrations').fetchone()['count'], 2)
 
     def test_applied_migration_cannot_be_rewritten(self):
         with tempfile.TemporaryDirectory() as folder:

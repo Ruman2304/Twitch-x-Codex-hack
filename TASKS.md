@@ -11,9 +11,9 @@
 - [x] Clearly label simulated demo mode and document local startup.
 - [x] Add Twitch OAuth authorization-code start/callback, one-time state validation, token validation, and channel profile lookup.
 - [x] Keep the OAuth token in a server-only session and provide a disconnect action.
-- [x] Add persistent PostgreSQL session/game records, transactional vote constraints, and checksummed SQL migrations. OAuth persistence remains a separate slice.
+- [x] Add persistent PostgreSQL session/game records, transactional vote constraints, and checksummed SQL migrations. OAuth persistence is completed in slice 3.
 - [ ] Replace polling with WebSocket events and reconnect snapshots.
-- [ ] Add encrypted persistent token storage, refresh/reconnect handling, and durable `/me` sessions.
+- [x] Add encrypted persistent token storage, serialized refresh/reconnect handling, and durable `/me` sessions.
 - [ ] Add EventSub WebSocket `channel.chat.message`, inbox event-ID deduplication, and `!vote` parsing.
 - [ ] Add scoped, expiring, revocable overlay tokens and actual session ownership checks.
 - [ ] Add structured challenge generation, server validation, moderation, and curated fallback.
@@ -30,7 +30,7 @@
 - [x] Bind OAuth state to its initiating browser and omit callback queries from HTTP logs.
 - [x] Add lifecycle, concurrency, authorization, validation, and OAuth regression tests.
 
-At the end of slice 1, storage used one in-memory workspace per server process. Demo mode intentionally allows local simulated controls without Twitch login. Live mode requires explicit session creation after sign-in. Durable storage, multi-session routing, token refresh, scoped overlays, and actual Twitch chat remain pending.
+At the end of slice 1, storage used one in-memory workspace per server process. Demo mode intentionally allows local simulated controls without Twitch login. Live mode requires explicit session creation after sign-in. Durable storage and token refresh were added in slices 2 and 3; multi-session routing, scoped overlays, and actual Twitch chat remain pending.
 
 ## Backend slice 2 — durable game state
 
@@ -43,7 +43,19 @@ At the end of slice 1, storage used one in-memory workspace per server process. 
 - [x] Keep memory storage available for no-credentials local demos; require DATABASE_URL for live mode.
 - [x] Add real PostgreSQL integration and lifecycle contract coverage, plus local setup documentation.
 
-Next: encrypted OAuth persistence/refresh, then EventSub ingestion, live delivery, and scoped overlays. Add structured AI generation after the Twitch loop is stable. Multiple session routes, retention jobs, and API framework migration remain pending.
+After slice 2, the next work was encrypted OAuth persistence/refresh, then EventSub ingestion, live delivery, and scoped overlays. Add structured AI generation after the Twitch loop is stable. Multiple session routes, retention jobs, and API framework migration remain pending.
+
+## Backend slice 3 — durable Twitch accounts
+
+- [x] Persist encrypted access/refresh tokens, user profiles, hashed browser sessions, and hashed one-time OAuth state.
+- [x] Keep encryption keys outside the database and support a key ring for old ciphertext.
+- [x] Validate on process startup and before hourly expiry; check app, identity, and required scope.
+- [x] Serialize refreshes across instances, react to 401s, and retain rotated refresh tokens.
+- [x] Invalidate sessions when credentials are revoked; preserve credentials on transient outages.
+- [x] Disconnect locally immediately and durably retry provider revocation when unavailable.
+- [x] Add memory/PostgreSQL account contracts and HTTP cookie/restart verification with a fake provider.
+
+Next: EventSub WebSocket chat ingestion and event-ID deduplication, followed by live browser delivery and scoped overlays. Real Twitch consent and chat tests remain pending credentials and manual testing.
 
 ## Later roadmap
 

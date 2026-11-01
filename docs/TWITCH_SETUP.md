@@ -1,53 +1,83 @@
-# Connecting DareLoop Live to Twitch
+# Connecting DareLoop to Twitch
 
-The UI runs in `DEMO_MODE` and now has a server-side Twitch OAuth sign-in flow. Register the app, add credentials to the local `.env`, restart the server, then use **Connect Twitch**. This slice validates the token and reads the channel profile; token refresh and EventSub chat voting are follow-on work. Never put a Twitch client secret, access token, refresh token, or OpenAI key in frontend JavaScript or a committed `.env` file.
+DareLoop uses Twitch's server-side Authorization Code flow. Tokens stay on the server. With PostgreSQL and an encryption key configured, the Twitch connection and opaque browser login survive an API restart. The local voting demo still works without a Twitch account. Real EventSub chat ingestion is the next feature and is not connected yet.
 
-## 1. Register a Twitch application
+## Register an application
 
-1. Sign in at the [Twitch Developer Console](https://dev.twitch.tv/console/apps) and register an application.
-2. For local development, set the OAuth redirect URL to `http://localhost:8000/api/v1/auth/twitch/callback` (or use exactly the redirect URI configured by the running app). Select the app category that best fits the product and save.
-3. Copy the Client ID and generate a Client Secret. Copy `.env.example` to `.env` and add them there. The `.env` file is git-ignored. Keep `DEMO_MODE=true`; sign-in does not disable simulated voting.
+Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/apps). For local development, register this exact redirect URL:
 
-The Twitch API has two useful pieces: **Helix** is the HTTPS API for account/channel information and Twitch resources, and **EventSub** delivers live events such as chat messages. Helix requests use the `Client-ID` header and `Authorization: Bearer <access_token>`. For a creator product that needs the creator's identity and authorized chat events, use a user access token from the Authorization Code Grant on the server. A client-credentials app token can access only endpoints that permit app tokens; it does not sign in a streamer or grant user scopes. [Twitch OAuth overview](https://dev.twitch.tv/docs/authentication), [Authorization Code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/)
-
-## 2. Implement sign-in on the backend
-
-1. Add `GET /api/v1/auth/twitch/start`. Generate a cryptographically random `state`, store it server-side with a short expiry and one-time-use flag, then redirect to `https://id.twitch.tv/oauth2/authorize` with `client_id`, exact `redirect_uri`, `response_type=code`, `scope`, and `state`.
-2. Use the smallest needed scopes. For EventSub chat reading, Twitch currently documents `user:read:chat`; if the app uses an app access token for that subscription, Twitch also requires `user:bot` from the chatting user and `channel:bot` from the broadcaster or moderator status. The authorization requirements depend on chosen EventSub transport and token type; confirm the current requirements before requesting consent. Do not ask for chat-send, moderation, or broad channel scopes unless a feature needs them. [Twitch chat EventSub authorization](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/#channel-chat-message)
-3. In `GET /api/v1/auth/twitch/callback`, compare the returned state with the stored, unused state. Exchange the returned `code` server-to-server by POSTing `client_id`, `client_secret`, `code`, `grant_type=authorization_code`, and `redirect_uri` to `https://id.twitch.tv/oauth2/token` as form data.
-4. Store Twitch user ID, display name, scopes, access token, refresh token, and expiry in server-side storage. Encrypt tokens at rest; never send them back to the browser. Establish a secure, HTTP-only, same-site session cookie. Use the Twitch user ID, not a client-supplied ID, to authorize creator actions.
-5. Call `https://id.twitch.tv/oauth2/validate` for token validation; handle `401` by refreshing with the refresh token on the backend and asking the creator to reconnect if Twitch rejects the refresh. Serialize refresh operations so concurrent requests do not race. [Twitch token validation and refresh](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refreshing tokens](https://dev.twitch.tv/docs/authentication/refresh-tokens/)
-
-Example Helix request after the backend has a valid token:
-
-```http
-GET https://api.twitch.tv/helix/users
-Client-ID: YOUR_CLIENT_ID
-Authorization: Bearer USER_ACCESS_TOKEN
+```text
+http://localhost:8000/api/v1/auth/twitch/callback
 ```
 
-The web app should call your own `/api/v1/me` endpoint; it should not call Twitch with a secret.
+Keep your Client ID and Client Secret in the root ignored `.env` or your host's secret manager. The current app requests only `user:read:chat`; it does not request chat-send or moderation permissions. EventSub transport-specific requirements will be implemented in the chat slice.
 
-## 3. Read chat with EventSub
+Start sign-in with **Connect Twitch**. The start endpoint redirects to the configured callback host before issuing a browser-bound state cookie. This avoids localhost/127.0.0.1 cookie mismatches. OAuth state is hashed on the server, expires after 10 minutes, and is consumed once. With PostgreSQL, pending sign-in state also survives a restart.
 
-For a local demo, run EventSub WebSocket from a persistent backend process and subscribe to `channel.chat.message` version `1` for the broadcaster's user ID. Twitch describes WebSockets as a good fit for a chatbot hosted on the end user's system; the WebSocket flow uses a user access token. Webhooks suit a publicly reachable cloud backend but require HTTPS callback verification and the EventSub signature/secret workflow. [Chat authentication and EventSub transports](https://dev.twitch.tv/docs/chat/authenticating), [EventSub WebSocket handling](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/)
+## Install and configure credential encryption
 
-On each incoming event:
+Install the backend dependencies:
 
-1. Persist the provider message/event ID in an inbox with a unique constraint. Ignore an ID already processed.
-2. Read broadcaster ID, chatter user ID, message text, and message ID from the event. Only accept events for the linked broadcaster and a live voting round.
-3. Parse a strict command such as `!vote 1`, `!vote 2`, or `!vote 3`. Ignore all other chat text. Use the chatter's Twitch user ID as the voter key; never trust a username supplied by a browser.
-4. In one database transaction, verify the round is still open using server time, upsert the viewer's single vote, and write an idempotent score event. A repeated vote event must not earn repeated points. If changing votes is supported, update the existing vote without counting a second participant.
-5. Publish a versioned `vote.tally_updated` message to dashboard and overlay clients. On reconnect, clients fetch the current authoritative snapshot before applying newer events.
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r apps/api/requirements.txt
+```
 
-EventSub WebSocket delivery may reconnect or redeliver notifications; use the message/event ID for idempotency and follow Twitch's reconnect URL/session rules. Run only one active EventSub connection/leader for a given deployment instance to avoid duplicate processing.
+Generate a Fernet key in your own terminal:
 
-## 4. Local versus deployed callback
+```bash
+.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
-The app registration's redirect URL and `TWITCH_REDIRECT_URI` must match exactly. A local redirect supports a developer-owned demo. For a hosted app, use the deployed HTTPS callback and update the app registration. EventSub WebSockets need a continuously running backend process; do not put the connection in a serverless handler that shuts down between requests.
+Copy the result into `TOKEN_ENCRYPTION_KEYS` in the ignored `.env`. Keep the same key across restarts. Do not commit it, paste it into frontend code, or store it in the database alongside the ciphertext. Losing all configured keys makes saved credentials unreadable; restore the key or reconnect affected accounts.
 
-## Current code status
+```dotenv
+DEMO_MODE=true
+TWITCH_CLIENT_ID=your-client-id
+TWITCH_CLIENT_SECRET=your-client-secret
+TWITCH_REDIRECT_URI=http://localhost:8000/api/v1/auth/twitch/callback
+TOKEN_ENCRYPTION_KEYS=your-generated-fernet-key
+DATABASE_URL=your-dedicated-postgresql-connection-string
+DATABASE_WORKSPACE=default
+```
 
-Implemented: demo command center, challenge approval, simulated votes, server-side tally/timer, scoreboard, read-only overlay, OAuth start/callback with one-time browser-bound state, token exchange/validation, and channel profile lookup. OAuth tokens are held in process memory only and are lost on restart. PostgreSQL game-state persistence is now available through DATABASE_URL; see DATABASE_SETUP.md. Not implemented: encrypted persistent token storage, token refresh, EventSub chat subscription, Redis or production WebSockets. See `TASKS.md`.
+Follow [database setup](DATABASE_SETUP.md), then apply all migrations and start the server:
 
-Use the configured callback host consistently during sign-in. The OAuth start route redirects to that host before issuing the state cookie. With demo mode disabled, create a live session after signing in; the workspace API requires the owning creator. Game state can now persist in PostgreSQL, but account cookies and OAuth tokens still reset on restart until the accounts slice is implemented.
+```bash
+.venv/bin/python -m apps.api.app.persistence.migrate
+.venv/bin/python apps/api/app/main.py
+```
+
+Without `DATABASE_URL`, a configured demo sign-in uses encrypted credentials in volatile memory and disappears on restart. Without encryption keys or Twitch credentials, demo mode starts with sign-in disabled and explains setup when Connect Twitch is selected. Live mode requires PostgreSQL, encryption keys, and Twitch credentials.
+
+The encryption key ring supports multiple comma-separated keys, newest first. New credentials use the first key; previous keys allow older ciphertext to be read. Existing ciphertext is replaced when an account reconnects or its tokens refresh. Keep old keys until all affected credentials and pending revocation jobs have been replaced or completed. There is no bulk key-rotation command in this slice.
+
+## Validation and refresh
+
+The backend validates stored connected tokens before serving traffic after startup. A maintenance worker checks every 30 seconds; connected tokens are revalidated after 55 minutes, before Twitch's hourly requirement. Requests also validate if needed. The browser's login lifetime is 24 hours and is separate from the Twitch access-token expiry.
+
+On a token validation or provider call returning 401, the account service refreshes once using the refresh token and validates the new access token. It checks the app, required scope, and Twitch user identity. Rotated access and refresh tokens are encrypted and saved together. A transaction lock serializes callback, refresh, and disconnect operations across API instances sharing the same account namespace; callers retrying with an already-replaced token reuse the newer token.
+
+If a refresh token is rejected, all browser sessions for that connection are invalidated and the UI offers **Reconnect Twitch**. Transient Twitch failures return a retryable error and preserve credentials, with a short backoff. If refresh succeeds but the next validation request fails temporarily, the rotated refresh token is retained for recovery. PostgreSQL and Twitch cannot share an atomic transaction; a database failure immediately after provider-side rotation may still require reconnecting.
+
+## Cookies and disconnect
+
+Browser cookies contain random opaque session identifiers. Only SHA-256 hashes are stored server-side. Cookies are HTTP-only and SameSite=Lax, and use Secure when the configured callback is HTTPS. OAuth tokens are never included in `/api/v1/me`, game snapshots, or static assets. HTTP request logs omit query strings, including OAuth authorization codes.
+
+**Disconnect** removes every browser session for the connection and clears the stored active tokens. Revocation is queued durably using encrypted access ciphertext, then attempted against Twitch. If Twitch is down, local access remains disabled and the maintenance worker retries revocation. The UI distinguishes pending revocation from a completed disconnect. Reconnecting does not erase a pending revocation job for the previous access token.
+
+## Backend integration contract
+
+Future server-only Twitch adapters obtain a token through `AccountService.access_token(user_id)`. On an actual Twitch 401, call it again with `rejected_token=the_token_that_failed` and retry the provider operation once. Never expose this token-returning method as a browser endpoint.
+
+With `DEMO_MODE=false`, sign in and select **Create live session**. Game reads and actions require that creator's authenticated cookie. One workspace per server configuration remains the current limitation; scoped OBS tokens and EventSub chat are still pending.
+
+## Automated verification
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Set `TEST_DATABASE_URL` to a separate disposable database to include PostgreSQL account and game tests. Tests use a fake Twitch provider and generated test keys; they never contact real Twitch or use real credentials. They cover token encryption, cookie/state hashing, refresh races, rotation, validation, revoked permissions, wrong identities, outages, durable disconnect retries, and recovery after service recreation. Real OAuth consent and two-viewer chat testing still require a registered app and your browser.
+
+Official references: [Authorization Code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/), [token validation](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refresh](https://dev.twitch.tv/docs/authentication/refresh-tokens/), [revocation](https://dev.twitch.tv/docs/authentication/revoke-tokens/), and [Fernet encryption](https://cryptography.io/en/latest/fernet/).
